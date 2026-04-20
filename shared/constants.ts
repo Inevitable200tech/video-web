@@ -1,10 +1,13 @@
+
 export const CATEGORIES = [
-  { name: "Cinema", href: "/?category=Cinema", icon: "🎬" },
-  { name: "Mallu", href: "/?q=Mallu", icon: "🌴" },
-  { name: "Teen", href: "/?q=teen", icon: "👧" },
-  { name: "Paki", href: "/?q=paki", icon: "⭐" },
-  { name: "Hot Leak", href: "/?q=leak", icon: "🔥" },
-  { name: "Music", href: "/?category=Music", icon: "🎵" },
-  { name: "Trending", href: "/?sortBy=views", icon: "📈" },
-  { name: "Top Rated", href: "/?sortBy=likes", icon: "💖" },
+  { name: "Indian", href: "/?q=Indian" },
+  { name: "Mallu", href: "/?q=Mallu" },
+  { name: "Teen", href: "/?q=teen" },
+  { name: "Paki", href: "/?q=paki" },
+  { name: "Trending", href: "/?sortBy=views" },
+  { name: "Top Rated", href: "/?sortBy=likes" },
+  { name: "Anal", href: "/?q=anal" },
+  { name: "Cum", href: "/?q=cum" },
+  { name: "College", href: "/?q=college" },
+  { name: "Cousin", href: "/?q=cousin" },
 ];

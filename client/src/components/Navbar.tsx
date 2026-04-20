@@ -80,7 +80,6 @@ export default function Navbar() {
                       <Link key={cat.name} href={cat.href}>
                         <div className="px-4 py-2.5 rounded-xl text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-white/5 cursor-pointer uppercase tracking-widest transition-colors flex items-center justify-between group/item">
                           <span>{cat.name}</span>
-                          <span className="opacity-0 group-hover/item:opacity-100 transition-opacity">{cat.icon}</span>
                         </div>
                       </Link>
                     ))}
@@ -128,7 +127,6 @@ export default function Navbar() {
               <Link key={cat.name} href={cat.href}>
                 <div onClick={() => setIsMenuOpen(false)} className="px-4 py-3 bg-white/5 rounded-lg text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center justify-between">
                   {cat.name}
-                  <span>{cat.icon}</span>
                 </div>
               </Link>
             ))}
