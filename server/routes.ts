@@ -73,55 +73,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ═══════════ VIDEO SYNC LOGIC ═══════════
+  // Decoupled from request path to prevent slow page loads
+  let lastSyncTime = 0;
+  const SYNC_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+
+  async function syncVideosWithStorage() {
+    if (Date.now() - lastSyncTime < SYNC_COOLDOWN) return;
+    if (!STORAGE_API_URL || !STORAGE_API_TOKEN) return;
+
+    try {
+      lastSyncTime = Date.now();
+      console.log("[SYNC] Starting background video synchronization...");
+
+      const response = await axios.get(`${STORAGE_API_URL}/api/public/files`, {
+        headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
+        timeout: 10000
+      });
+
+      if (response.data.success && Array.isArray(response.data.files)) {
+        const files = response.data.files;
+        
+        const existingVideos = await VideoModel.find({ 
+          hash: { $in: files.map((f: any) => f.hash) } 
+        }).select('hash thumbnailHash');
+        
+        const existingMap = new Map(existingVideos.map((v: any) => [v.hash, v]));
+
+        const newVideos = files.filter((f: any) => !existingMap.has(f.hash));
+        const videosToUpdate = files.filter((f: any) => {
+          const existing = existingMap.get(f.hash);
+          return existing && !existing.thumbnailHash && f.thumbnail_address;
+        });
+
+        // 1. Bulk Insert New Videos
+        if (newVideos.length > 0) {
+          const videoDocs = newVideos.map((f: any) => ({
+            title: f.title || f.filename,
+            description: "Auto-discovered from storage network.",
+            hash: f.hash,
+            thumbnailHash: f.thumbnail_address,
+            category: "Cinema",
+            uploadedAt: f.created_at || new Date()
+          }));
+          await VideoModel.insertMany(videoDocs);
+          console.log(`[SYNC] Inserted ${newVideos.length} new videos`);
+        }
+
+        // 2. Bulk Update Missing Thumbnails
+        if (videosToUpdate.length > 0) {
+          const bulkOps = videosToUpdate.map((v: any) => ({
+            updateOne: {
+              filter: { hash: v.hash },
+              update: { $set: { thumbnailHash: v.thumbnail_address } }
+            }
+          }));
+          await VideoModel.bulkWrite(bulkOps);
+          console.log(`[SYNC] Updated thumbnails for ${videosToUpdate.length} videos`);
+        }
+      }
+    } catch (err: any) {
+      console.warn("[SYNC ERROR]", err.message);
+    }
+  }
+
   // Video Routes
   app.get("/api/videos", async (req, res) => {
     try {
-      // 1. Optional Auto-Sync from Storage API
-      if (STORAGE_API_URL && STORAGE_API_TOKEN) {
-        try {
-          const response = await axios.get(`${STORAGE_API_URL}/api/public/files`, {
-            headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
-            timeout: 5000
-          });
-
-          if (response.data.success && Array.isArray(response.data.files)) {
-            const files = response.data.files;
-            
-            // Batch find existing hashes to reduce DB queries
-            const existingVideos = await VideoModel.find({ 
-              hash: { $in: files.map((f: any) => f.hash) } 
-            }).select('hash');
-            const existingHashes = new Set(existingVideos.map((v: any) => v.hash));
-
-            const newVideos = files.filter((f: any) => !existingHashes.has(f.hash));
-            const videosToUpdate = files.filter((f: any) => existingHashes.has(f.hash) && f.thumbnail_address);
-
-            if (newVideos.length > 0) {
-              console.log(`[SYNC] Found ${newVideos.length} new videos in storage API`);
-              const videoDocs = newVideos.map((f: any) => ({
-                title: f.title || f.filename,
-                description: "Auto-discovered from storage network.",
-                hash: f.hash,
-                thumbnailHash: f.thumbnail_address,
-                category: "Cinema",
-                uploadedAt: f.created_at || new Date()
-              }));
-              await VideoModel.insertMany(videoDocs);
-            }
-
-            if (videosToUpdate.length > 0) {
-              for (const v of videosToUpdate) {
-                await VideoModel.updateOne(
-                  { hash: v.hash, $or: [{ thumbnailHash: null }, { thumbnailHash: "" }] },
-                  { $set: { thumbnailHash: v.thumbnail_address } }
-                );
-              }
-            }
-          }
-        } catch (syncErr: any) {
-          console.warn("[SYNC WARNING] Failed to connect to storage API for discovery:", syncErr.message);
-        }
-      }
+      // Fire-and-forget sync in the background
+      syncVideosWithStorage().catch(() => {});
 
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
