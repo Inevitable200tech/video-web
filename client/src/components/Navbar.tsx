@@ -2,11 +2,33 @@ import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Play, Upload, User, Search, Menu, X, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Navbar() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Read initial search query from URL
+  const getQueryFromUrl = () => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") || "";
+  };
+
+  const [searchValue, setSearchValue] = useState(getQueryFromUrl);
+
+  // Sync search input when URL changes (e.g., navigating back)
+  useEffect(() => {
+    setSearchValue(getQueryFromUrl());
+  }, [location]);
+
+  const handleSearch = (value: string) => {
+    setSearchValue(value);
+    if (value.trim()) {
+      navigate(`/?q=${encodeURIComponent(value.trim())}`);
+    } else {
+      navigate("/");
+    }
+  };
 
   const navLinks = [
     { name: "Explore", href: "/", icon: Play },
@@ -38,10 +60,20 @@ export default function Navbar() {
             <div className="relative group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-cyan-400 transition-colors" />
               <input 
-                type="text" 
-                placeholder="Search movies, shows..." 
-                className="bg-white/5 border border-white/10 rounded-full py-2.5 pl-12 pr-6 text-sm w-80 focus:outline-none focus:border-cyan-500/50 focus:ring-4 focus:ring-cyan-500/10 transition-all text-white placeholder:text-gray-600"
+                type="text"
+                value={searchValue}
+                onChange={e => handleSearch(e.target.value)}
+                placeholder="Search movies, shows..."
+                className="bg-white/5 border border-white/10 rounded-full py-2.5 pl-12 pr-10 text-sm w-80 focus:outline-none focus:border-cyan-500/50 focus:ring-4 focus:ring-cyan-500/10 transition-all text-white placeholder:text-gray-600"
               />
+              {searchValue && (
+                <button
+                  onClick={() => handleSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-6">
@@ -90,8 +122,10 @@ export default function Navbar() {
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input 
-              type="text" 
-              placeholder="Search videos..." 
+              type="text"
+              value={searchValue}
+              onChange={e => { handleSearch(e.target.value); setIsMenuOpen(false); }}
+              placeholder="Search videos..."
               className="bg-gray-800 border border-gray-700 rounded-lg py-2 pl-10 pr-4 text-sm w-full text-white"
             />
           </div>
@@ -127,3 +161,4 @@ export default function Navbar() {
 function Separator() {
   return <div className="h-4 w-[1px] bg-gray-800 mx-2" />;
 }
+

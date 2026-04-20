@@ -78,13 +78,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   let lastSyncTime = 0;
   const SYNC_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
+  const PROMO_REGEX = / -? Desi new videoz hd \/ sd - DropMMS Unblock/gi;
+
+  function cleanTitle(title: string): string {
+    if (!title) return "Untitled Video";
+    return title.replace(PROMO_REGEX, "").replace(/\s+/g, " ").trim();
+  }
+
   async function syncVideosWithStorage() {
     if (Date.now() - lastSyncTime < SYNC_COOLDOWN) return;
     if (!STORAGE_API_URL || !STORAGE_API_TOKEN) return;
 
     try {
       lastSyncTime = Date.now();
-      console.log("[SYNC] Starting background video synchronization...");
+      console.log("[SYNC] Starting background video synchronization and title cleaning...");
+
+      // 0. Clean existing titles in DB (One-time check per sync)
+      const targetPhrase = "Desi new videoz hd / sd - DropMMS Unblock";
+      await VideoModel.updateMany(
+        { title: { $regex: targetPhrase } },
+        [{ $set: { title: { $trim: { input: { $replaceOne: { input: "$title", find: ` - ${targetPhrase}`, replacement: "" } } } } } }]
+      );
+      await VideoModel.updateMany(
+        { title: { $regex: targetPhrase } },
+        [{ $set: { title: { $trim: { input: { $replaceOne: { input: "$title", find: targetPhrase, replacement: "" } } } } } }]
+      );
 
       const response = await axios.get(`${STORAGE_API_URL}/api/public/files`, {
         headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
@@ -103,13 +121,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const newVideos = files.filter((f: any) => !existingMap.has(f.hash));
         const videosToUpdate = files.filter((f: any) => {
           const existing = existingMap.get(f.hash);
+          // Update if missing thumbnail OR if title still has promo (though updateMany handles the latter)
           return existing && !existing.thumbnailHash && f.thumbnail_address;
         });
 
-        // 1. Bulk Insert New Videos
+        // 1. Bulk Insert New Videos (with clean titles)
         if (newVideos.length > 0) {
           const videoDocs = newVideos.map((f: any) => ({
-            title: f.title || f.filename,
+            title: cleanTitle(f.title || f.filename),
             description: "Auto-discovered from storage network.",
             hash: f.hash,
             thumbnailHash: f.thumbnail_address,
@@ -117,7 +136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             uploadedAt: f.created_at || new Date()
           }));
           await VideoModel.insertMany(videoDocs);
-          console.log(`[SYNC] Inserted ${newVideos.length} new videos`);
+          console.log(`[SYNC] Inserted ${newVideos.length} new videos with cleaned titles`);
         }
 
         // 2. Bulk Update Missing Thumbnails
@@ -146,9 +165,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const skip = (page - 1) * limit;
-      const { category } = req.query;
+      const { category, q } = req.query;
 
-      const result = await storage.getVideos(category as string, skip, limit);
+      const result = await storage.getVideos(category as string, skip, limit, q as string);
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to fetch videos" });
@@ -225,7 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // 2. Save metadata in our DB
       const videoData = insertVideoSchema.parse({
-        title,
+        title: cleanTitle(title),
         description,
         category: category || "Cinema",
         hash,
@@ -272,6 +291,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ message: "Invalid comment data" });
     }
   });
+
+  // 🚀 Immediate Startup Sync
+  // Runs once when the server starts to clean titles and discover new videos
+  syncVideosWithStorage().catch(err => console.error("[STARTUP SYNC ERROR]", err.message));
 
   const httpServer = createServer(app);
   return httpServer;

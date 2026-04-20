@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "wouter";
-import { Play, Eye, Calendar, Tag, ChevronLeft, ChevronRight } from "lucide-react";
+import { Link, useSearch } from "wouter";
+import { Play, Eye, Calendar, Tag, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Video {
   id: string;
@@ -24,13 +24,22 @@ interface VideoResponse {
 }
 
 export default function VideoLibrary() {
+  const searchStr = useSearch(); // e.g. "?q=punjabi"
+  const searchQuery = new URLSearchParams(searchStr).get("q") || "";
   const [page, setPage] = useState(1);
   const limit = 12;
 
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
   const { data, isLoading } = useQuery<VideoResponse>({
-    queryKey: ["/api/videos", page],
+    queryKey: ["/api/videos", page, searchQuery],
     queryFn: async () => {
-      const res = await fetch(`/api/videos?page=${page}&limit=${limit}`);
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      const res = await fetch(`/api/videos?${params}`);
       return res.json();
     },
   });
@@ -38,6 +47,7 @@ export default function VideoLibrary() {
   const videos = data?.videos || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / limit);
+  const isSearching = searchQuery.trim().length > 0;
 
   return (
     <div className="min-h-screen pt-24 pb-24 px-4 sm:px-8">
@@ -68,6 +78,16 @@ export default function VideoLibrary() {
         >
           Stream the latest cinematic masterpieces from our global distributed storage network. Fast, secure, and decentralized.
         </motion.p>
+
+        {isSearching && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-6 text-sm text-gray-500"
+          >
+            {isLoading ? "Searching..." : `${total.toLocaleString()} result${total !== 1 ? "s" : ""} for "${searchQuery}"`}
+          </motion.p>
+        )}
       </header>
 
       <main className="max-w-[1400px] mx-auto">
@@ -199,17 +219,40 @@ export default function VideoLibrary() {
           </>
         )}
         
-        {!isLoading && videos?.length === 0 && (
-          <div className="text-center py-20">
-            <Tag className="w-16 h-16 text-gray-800 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-600">No videos found</h2>
-            <p className="text-gray-500">Be the first to upload something amazing!</p>
-            <Link href="/upload">
-              <button className="mt-6 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-full font-bold transition-colors">
-                Upload Now
-              </button>
-            </Link>
-          </div>
+        {!isLoading && videos.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center py-24"
+          >
+            {isSearching ? (
+              <>
+                <Search className="w-16 h-16 text-gray-800 mx-auto mb-4" />
+                <h2 className="text-2xl font-bold text-gray-500">No results found</h2>
+                <p className="text-gray-600 mt-2">
+                  No videos matched <span className="text-white font-semibold">"{searchQuery}"</span>
+                </p>
+                <Link href="/">
+                  <button
+                    className="mt-6 px-6 py-3 rounded-full border border-white/10 text-gray-400 hover:text-white hover:border-white/30 font-bold transition-all"
+                  >
+                    Clear search
+                  </button>
+                </Link>
+              </>
+            ) : (
+              <>
+                <Tag className="w-16 h-16 text-gray-800 mx-auto mb-4" />
+                <h2 className="text-2xl font-bold text-gray-600">No videos found</h2>
+                <p className="text-gray-500">Be the first to upload something amazing!</p>
+                <Link href="/upload">
+                  <button className="mt-6 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-full font-bold transition-colors">
+                    Upload Now
+                  </button>
+                </Link>
+              </>
+            )}
+          </motion.div>
         )}
       </main>
     </div>

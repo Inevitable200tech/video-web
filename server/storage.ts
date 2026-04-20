@@ -18,7 +18,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   // Video operations
-  getVideos(category?: string, skip?: number, limit?: number): Promise<{ videos: Video[], total: number }>;
+  getVideos(category?: string, skip?: number, limit?: number, q?: string): Promise<{ videos: Video[], total: number }>;
   getVideoByHash(hash: string): Promise<Video | null>;
   getVideoById(id: string): Promise<Video | null>;
   createVideo(video: InsertVideo, userId?: string): Promise<Video>;
@@ -46,8 +46,12 @@ export class MongoStorage implements IStorage {
   }
 
   // Video operations
-  async getVideos(category?: string, skip: number = 0, limit: number = 20): Promise<{ videos: Video[], total: number }> {
-    const query = category ? { category } : {};
+  async getVideos(category?: string, skip: number = 0, limit: number = 20, q?: string): Promise<{ videos: Video[], total: number }> {
+    const query: any = {};
+    if (category) query.category = category;
+    if (q && q.trim()) {
+      query.title = { $regex: q.trim(), $options: 'i' };
+    }
     const [docs, total] = await Promise.all([
       VideoModel.find(query)
         .sort({ uploadedAt: -1 })
