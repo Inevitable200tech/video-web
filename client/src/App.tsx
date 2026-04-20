@@ -34,7 +34,7 @@ function App() {
     <ThemeProvider defaultTheme="dark" storageKey="video-portal-theme">
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <div className="min-h-screen bg-[#0a0a0a] selection:bg-cyan-500/30 selection:text-cyan-400">
+          <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30 selection:text-cyan-400">
             <Navbar />
             <Suspense fallback={<LoadingFallback />}>
               <Switch>

@@ -18,11 +18,12 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   // Video operations
-  getVideos(category?: string, skip?: number, limit?: number, q?: string): Promise<{ videos: Video[], total: number }>;
+  getVideos(category?: string, skip?: number, limit?: number, q?: string, sortBy?: string): Promise<{ videos: Video[], total: number }>;
   getVideoByHash(hash: string): Promise<Video | null>;
   getVideoById(id: string): Promise<Video | null>;
   createVideo(video: InsertVideo, userId?: string): Promise<Video>;
   incrementViews(hash: string): Promise<Video | null>;
+  incrementLikes(hash: string): Promise<Video | null>;
   deleteVideo(id: string): Promise<boolean>;
 
   // Comment operations
@@ -46,15 +47,21 @@ export class MongoStorage implements IStorage {
   }
 
   // Video operations
-  async getVideos(category?: string, skip: number = 0, limit: number = 20, q?: string): Promise<{ videos: Video[], total: number }> {
+  async getVideos(category?: string, skip: number = 0, limit: number = 20, q?: string, sortBy: string = "newest"): Promise<{ videos: Video[], total: number }> {
     const query: any = {};
     if (category) query.category = category;
     if (q && q.trim()) {
       query.title = { $regex: q.trim(), $options: 'i' };
     }
+
+    let sortObj: any = { uploadedAt: -1 };
+    if (sortBy === "views") sortObj = { views: -1 };
+    else if (sortBy === "likes") sortObj = { likes: -1 };
+    else if (sortBy === "trending") sortObj = { views: -1, uploadedAt: -1 };
+
     const [docs, total] = await Promise.all([
       VideoModel.find(query)
-        .sort({ uploadedAt: -1 })
+        .sort(sortObj)
         .skip(skip)
         .limit(limit)
         .lean()
@@ -90,6 +97,16 @@ export class MongoStorage implements IStorage {
     const doc = await VideoModel.findOneAndUpdate(
       { hash },
       { $inc: { views: 1 } },
+      { new: true }
+    ).lean().exec();
+    if (!doc) return null;
+    return { ...doc, id: (doc as any)._id.toString() } as unknown as Video;
+  }
+
+  async incrementLikes(hash: string): Promise<Video | null> {
+    const doc = await VideoModel.findOneAndUpdate(
+      { hash },
+      { $inc: { likes: 1 } },
       { new: true }
     ).lean().exec();
     if (!doc) return null;

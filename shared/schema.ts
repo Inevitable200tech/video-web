@@ -39,6 +39,7 @@ export interface Video extends Document {
   thumbnailHash?: string;
   category: string;
   views: number;
+  likes: number;
   duration?: number; // in seconds
   uploadedBy?: mongoose.Types.ObjectId;
   uploadedAt: Date;
@@ -51,6 +52,7 @@ export const videoSchema = new Schema<Video>({
   thumbnailHash: { type: String },
   category: { type: String, required: true },
   views: { type: Number, default: 0 },
+  likes: { type: Number, default: 0 },
   duration: { type: Number },
   uploadedBy: { type: Schema.Types.ObjectId, ref: "User" },
   uploadedAt: { type: Date, default: Date.now },

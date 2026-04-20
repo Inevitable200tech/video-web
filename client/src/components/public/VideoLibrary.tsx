@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
-import { Link, useSearch } from "wouter";
-import { Play, Eye, Calendar, Tag, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Link, useSearch, useLocation } from "wouter";
+import { Play, Eye, Clock, Search, TrendingUp, Heart, Flame } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
@@ -15,6 +14,7 @@ interface Video {
   thumbnailHash?: string;
   category: string;
   views: number;
+  likes: number;
   uploadedAt: string;
 }
 
@@ -24,235 +24,268 @@ interface VideoResponse {
 }
 
 export default function VideoLibrary() {
-  const searchStr = useSearch(); // e.g. "?q=punjabi"
+  const searchStr = useSearch();
+  const [_, navigate] = useLocation();
   const searchQuery = new URLSearchParams(searchStr).get("q") || "";
+  const activeSort = new URLSearchParams(searchStr).get("sortBy") || "newest";
   const [page, setPage] = useState(1);
   const limit = 12;
 
   // Reset to page 1 when search query changes
   useEffect(() => {
     setPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, activeSort]);
 
-  const { data, isLoading } = useQuery<VideoResponse>({
-    queryKey: ["/api/videos", page, searchQuery],
+  // Main Query for the grid
+  const { data: mainData, isLoading: isMainLoading } = useQuery<VideoResponse>({
+    queryKey: ["/api/videos", page, searchQuery, activeSort],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      const params = new URLSearchParams({ 
+        page: String(page), 
+        limit: String(limit),
+        sortBy: activeSort 
+      });
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
       const res = await fetch(`/api/videos?${params}`);
       return res.json();
     },
   });
 
-  const videos = data?.videos || [];
-  const total = data?.total || 0;
+  // Category specific queries for the Cinema Home view
+  const { data: trendingData } = useQuery<VideoResponse>({
+    queryKey: ["/api/videos", "trending"],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos?limit=4&sortBy=views`);
+      return res.json();
+    },
+    enabled: page === 1 && !searchQuery,
+  });
+
+  const { data: newestData } = useQuery<VideoResponse>({
+    queryKey: ["/api/videos", "newest"],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos?limit=4&sortBy=newest`);
+      return res.json();
+    },
+    enabled: page === 1 && !searchQuery,
+  });
+
+  const { data: bestData } = useQuery<VideoResponse>({
+    queryKey: ["/api/videos", "best"],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos?limit=4&sortBy=likes`);
+      return res.json();
+    },
+    enabled: page === 1 && !searchQuery,
+  });
+
+  const videos = mainData?.videos || [];
+  const total = mainData?.total || 0;
   const totalPages = Math.ceil(total / limit);
   const isSearching = searchQuery.trim().length > 0;
+  const isCinemaView = page === 1 && !isSearching && activeSort === "newest";
+
+  const VideoCard = ({ video, showLikes = false }: { video: Video, showLikes?: boolean }) => (
+    <Link href={`/watch/${video.hash}`}>
+      <div className="group flex flex-col cursor-pointer">
+        <div className="relative aspect-[16/9] rounded-2xl overflow-hidden mb-4 bg-black border border-white/5 shadow-lg transition-transform duration-300 hover:-translate-y-1">
+          <img
+            src={video.thumbnailHash || "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=2000&auto=format&fit=crop"}
+            alt={video.title}
+            className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=2000&auto=format&fit=crop";
+            }}
+            loading="lazy"
+          />
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-2xl">
+              <Play className="w-5 h-5 fill-current" />
+            </div>
+          </div>
+          <div className="absolute bottom-3 left-3">
+            <Badge className="bg-black/60 backdrop-blur-md border-white/10 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5">
+              {video.category}
+            </Badge>
+          </div>
+        </div>
+
+        <h3 className="text-lg font-bold text-foreground mb-2 line-clamp-1 group-hover:text-primary transition-colors">
+          {video.title}
+        </h3>
+        
+        <div className="flex items-center gap-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+          <span className="flex items-center gap-1">
+            <Eye className="w-3 h-3" />
+            {(video.views || 0).toLocaleString()}
+          </span>
+          {showLikes && (
+            <span className="flex items-center gap-1 text-pink-500">
+              <Heart className="w-3 h-3 fill-pink-500" />
+              {(video.likes || 0).toLocaleString()}
+            </span>
+          )}
+          <span>•</span>
+          <span>{formatDistanceToNow(new Date(video.uploadedAt))} ago</span>
+        </div>
+      </div>
+    </Link>
+  );
 
   return (
-    <div className="min-h-screen pt-24 pb-24 px-4 sm:px-8">
-      <header className="max-w-[1400px] mx-auto mb-16">
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-bold mb-6 tracking-widest uppercase"
-        >
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-          Live Network
-        </motion.div>
-        
-        <motion.h1 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-6xl sm:text-8xl font-black font-display tracking-tighter leading-tight mb-6"
-        >
-          UNLIMITED <br />
-          <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500">EXPERIENCE</span>
-        </motion.h1>
-        
-        <motion.p 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="text-gray-400 text-xl max-w-2xl font-medium leading-relaxed"
-        >
-          Stream the latest cinematic masterpieces from our global distributed storage network. Fast, secure, and decentralized.
-        </motion.p>
-
-        {isSearching && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-6 text-sm text-gray-500"
-          >
-            {isLoading ? "Searching..." : `${total.toLocaleString()} result${total !== 1 ? "s" : ""} for "${searchQuery}"`}
-          </motion.p>
-        )}
-      </header>
-
+    <div className="min-h-screen bg-background pt-12 pb-24 px-4 sm:px-8">
       <main className="max-w-[1400px] mx-auto">
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-8">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="space-y-4">
-                <Skeleton className="aspect-[16/9] rounded-2xl bg-white/5" />
-                <Skeleton className="h-8 w-3/4 bg-white/5" />
-                <Skeleton className="h-4 w-1/2 bg-white/5" />
+        
+        {isCinemaView ? (
+          <div className="space-y-20">
+            {/* Most Viewed Section */}
+            <section>
+              <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <Flame className="w-5 h-5 text-primary" />
+                  <h2 className="text-xl font-bold tracking-tight">Most Viewed</h2>
+                </div>
+                <Link href="/?sortBy=views">
+                  <button className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors">
+                    View All
+                  </button>
+                </Link>
               </div>
-            ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {trendingData?.videos.map((v) => <VideoCard key={v.id} video={v} />)}
+                {!trendingData && [...Array(4)].map((_, i) => <Skeleton key={i} className="aspect-[16/9] rounded-2xl bg-white/5" />)}
+              </div>
+            </section>
+
+            {/* Newest Section */}
+            <section>
+              <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <Clock className="w-5 h-5 text-purple-400" />
+                  <h2 className="text-xl font-bold tracking-tight">Recently Added</h2>
+                </div>
+                <Link href="/?sortBy=newest">
+                  <button className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors">
+                    View All
+                  </button>
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {newestData?.videos.map((v) => <VideoCard key={v.id} video={v} />)}
+                {!newestData && [...Array(4)].map((_, i) => <Skeleton key={i} className="aspect-[16/9] rounded-2xl bg-white/5" />)}
+              </div>
+            </section>
+
+            {/* Best Section */}
+            <section>
+              <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <TrendingUp className="w-5 h-5 text-pink-400" />
+                  <h2 className="text-xl font-bold tracking-tight">Top Rated</h2>
+                </div>
+                <Link href="/?sortBy=likes">
+                  <button className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors">
+                    View All
+                  </button>
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {bestData?.videos.map((v) => <VideoCard key={v.id} video={v} showLikes />)}
+                {!bestData && [...Array(4)].map((_, i) => <Skeleton key={i} className="aspect-[16/9] rounded-2xl bg-white/5" />)}
+              </div>
+            </section>
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-8 mb-16">
-              <AnimatePresence mode="popLayout">
-                {videos.map((video, index) => (
-                  <motion.div
-                    key={video.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ delay: (index % 4) * 0.05 }}
-                  >
-                    <Link href={`/watch/${video.hash}`}>
-                      <div className="group relative glass-card rounded-2xl overflow-hidden cursor-pointer transition-all duration-500 hover:ring-2 hover:ring-cyan-500/50 hover:shadow-[0_0_50px_-12px_rgba(34,211,238,0.3)]">
-                        {/* Thumbnail Area */}
-                        <div className="relative aspect-[16/9] bg-black overflow-hidden">
-                          <img
-                            src={video.thumbnailHash || "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=2000&auto=format&fit=crop"}
-                            alt={video.title}
-                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=2000&auto=format&fit=crop";
-                            }}
-                            loading="lazy"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent z-10 opacity-80 group-hover:opacity-60 transition-opacity duration-500" />
-                          <Play className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 text-white fill-white opacity-0 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500 z-20" />
-                          
-                          <div className="absolute bottom-4 left-4 z-20">
-                            <Badge className="bg-white/10 backdrop-blur-md border-white/10 text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5">
-                              {video.category}
-                            </Badge>
-                          </div>
-                        </div>
+            <header className="mb-12 flex flex-col sm:flex-row sm:items-center justify-between gap-6 border-b border-white/5 pb-8">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight mb-2 uppercase">
+                  {isSearching ? `Search: ${searchQuery}` : activeSort}
+                </h1>
+                <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">
+                  {isMainLoading ? "Loading..." : `${total} videos found`}
+                </p>
+              </div>
+              
+              {!isSearching && (
+                <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
+                  {["newest", "views", "likes"].map((sort) => (
+                    <button
+                      key={sort}
+                      onClick={() => navigate(`/?sortBy=${sort}`)}
+                      className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+                        activeSort === sort ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {sort}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </header>
 
-                        <div className="p-6">
-                          <h3 className="text-xl font-bold font-display text-white mb-3 line-clamp-1 group-hover:text-cyan-400 transition-colors">
-                            {video.title}
-                          </h3>
-                          
-                          <div className="flex items-center justify-between mt-auto">
-                            <div className="flex items-center gap-3 text-[10px] font-black text-gray-500 uppercase tracking-widest">
-                              <span className="flex items-center gap-1">
-                                <Eye className="w-3 h-3" />
-                                {video.views.toLocaleString()}
-                              </span>
-                              <span>•</span>
-                              <span className="flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                {formatDistanceToNow(new Date(video.uploadedAt))}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  </motion.div>
+            {isMainLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-8">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="space-y-4">
+                    <Skeleton className="aspect-[16/9] rounded-2xl bg-white/5" />
+                    <Skeleton className="h-6 w-3/4 bg-white/5" />
+                    <Skeleton className="h-4 w-1/2 bg-white/5" />
+                  </div>
                 ))}
-              </AnimatePresence>
-            </div>
-
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-4">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className={`
-                    p-4 rounded-2xl glass transition-all
-                    ${page === 1 ? "opacity-20 cursor-not-allowed" : "hover:bg-cyan-500 hover:text-black hover:shadow-[0_0_30px_rgba(34,211,238,0.4)] text-white"}
-                  `}
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-
-                <div className="flex gap-2">
-                  {[...Array(totalPages)].map((_, i) => {
-                    const pageNum = i + 1;
-                    if (
-                      pageNum === 1 ||
-                      pageNum === totalPages ||
-                      Math.abs(pageNum - page) <= 1
-                    ) {
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setPage(pageNum)}
-                          className={`
-                            w-14 h-14 rounded-2xl font-black transition-all
-                            ${page === pageNum ? "bg-white text-black shadow-xl scale-110" : "glass text-gray-500 hover:text-white"}
-                          `}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    }
-                    if (Math.abs(pageNum - page) === 2) {
-                      return <span key={pageNum} className="w-10 flex items-end justify-center text-gray-700 font-bold pb-2">...</span>;
-                    }
-                    return null;
-                  })}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-8 mb-16">
+                  {videos.map((video) => (
+                    <VideoCard key={video.id} video={video} showLikes={activeSort === "likes"} />
+                  ))}
                 </div>
 
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className={`
-                    p-4 rounded-2xl glass transition-all
-                    ${page === totalPages ? "opacity-20 cursor-not-allowed" : "hover:bg-cyan-500 hover:text-black hover:shadow-[0_0_30px_rgba(34,211,238,0.4)] text-white"}
-                  `}
-                >
-                  <ChevronRight className="w-6 h-6" />
-                </button>
-              </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-4">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className={`
+                        w-10 h-10 rounded-xl flex items-center justify-center border border-white/10 transition-all
+                        ${page === 1 ? "opacity-20 cursor-not-allowed" : "hover:bg-white hover:text-black"}
+                      `}
+                    >
+                      Prev
+                    </button>
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                      Page {page} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className={`
+                        w-10 h-10 rounded-xl flex items-center justify-center border border-white/10 transition-all
+                        ${page === totalPages ? "opacity-20 cursor-not-allowed" : "hover:bg-white hover:text-black"}
+                      `}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
-        
-        {!isLoading && videos.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center py-24"
-          >
-            {isSearching ? (
-              <>
-                <Search className="w-16 h-16 text-gray-800 mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-gray-500">No results found</h2>
-                <p className="text-gray-600 mt-2">
-                  No videos matched <span className="text-white font-semibold">"{searchQuery}"</span>
-                </p>
-                <Link href="/">
-                  <button
-                    className="mt-6 px-6 py-3 rounded-full border border-white/10 text-gray-400 hover:text-white hover:border-white/30 font-bold transition-all"
-                  >
-                    Clear search
-                  </button>
-                </Link>
-              </>
-            ) : (
-              <>
-                <Tag className="w-16 h-16 text-gray-800 mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-gray-600">No videos found</h2>
-                <p className="text-gray-500">Be the first to upload something amazing!</p>
-                <Link href="/upload">
-                  <button className="mt-6 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-full font-bold transition-colors">
-                    Upload Now
-                  </button>
-                </Link>
-              </>
-            )}
-          </motion.div>
+
+        {!isMainLoading && videos.length === 0 && !isCinemaView && (
+          <div className="text-center py-40 border border-white/5 rounded-3xl bg-white/[0.02]">
+            <Search className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold mb-2">No results found</h2>
+            <p className="text-muted-foreground text-sm mb-8">Try adjusting your search or filters.</p>
+            <button
+              onClick={() => navigate("/")}
+              className="px-6 py-2 bg-white text-black font-bold rounded-xl hover:scale-105 transition-transform"
+            >
+              Reset All
+            </button>
+          </div>
         )}
       </main>
     </div>

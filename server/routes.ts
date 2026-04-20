@@ -103,6 +103,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { title: { $regex: targetPhrase } },
         [{ $set: { title: { $trim: { input: { $replaceOne: { input: "$title", find: targetPhrase, replacement: "" } } } } } }]
       );
+      
+      // Initialize likes for old videos
+      await VideoModel.updateMany(
+        { likes: { $exists: false } },
+        { $set: { likes: 0 } }
+      );
 
       const response = await axios.get(`${STORAGE_API_URL}/api/public/files`, {
         headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
@@ -165,9 +171,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const skip = (page - 1) * limit;
-      const { category, q } = req.query;
+      const { category, q, sortBy } = req.query;
 
-      const result = await storage.getVideos(category as string, skip, limit, q as string);
+      const result = await storage.getVideos(category as string, skip, limit, q as string, sortBy as string);
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to fetch videos" });
@@ -204,6 +210,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error: any) {
       res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post("/api/videos/:hash/like", async (req, res) => {
+    try {
+      const { hash } = req.params;
+      const video = await storage.incrementLikes(hash);
+      if (!video) return res.status(404).json({ message: "Video not found" });
+      res.json(video);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to like video" });
     }
   });
 
