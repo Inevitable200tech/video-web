@@ -1,148 +1,140 @@
 import { Link, useLocation } from "wouter";
-import { Play, Upload, Search, Menu, X, LogIn } from "lucide-react";
+import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { CATEGORIES } from "@shared/constants";
 
 export default function Navbar() {
   const [location, navigate] = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  // Read initial search query from URL
-  const getQueryFromUrl = () => {
+  const [searchValue, setSearchValue] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("q") || "";
-  };
+  });
 
-  const [searchValue, setSearchValue] = useState(getQueryFromUrl);
-
-  // Sync search input when URL changes
   useEffect(() => {
-    setSearchValue(getQueryFromUrl());
+    const q = new URLSearchParams(window.location.search).get("q") || "";
+    setSearchValue(q);
   }, [location]);
 
   const handleSearch = (value: string) => {
     setSearchValue(value);
-    if (value.trim()) {
-      navigate(`/?q=${encodeURIComponent(value.trim())}`);
-    } else {
-      navigate("/");
-    }
+    if (value.trim()) navigate(`/?q=${encodeURIComponent(value.trim())}`);
+    else navigate("/");
   };
 
-  const navLinks = [
-    { name: "Explore", href: "/", icon: Play },
-    { name: "Upload", href: "/upload", icon: Upload },
-  ];
-
   return (
-    <nav className="sticky top-0 z-50 w-full bg-[#0a0a0a]/80 backdrop-blur-md border-b border-white/5">
+    <nav className="sticky top-0 z-50 w-full bg-background/20 backdrop-blur-lg border-b border-white/[0.03]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-20">
+          
           {/* Logo */}
           <Link href="/">
-            <div className="flex items-center gap-3 cursor-pointer group">
+            <div className="flex items-center gap-3 cursor-pointer">
               <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
                 <Play className="w-6 h-6 text-primary-foreground fill-current" />
               </div>
               <span className="text-xl font-bold tracking-tight text-foreground uppercase">
-                FUTURE<span className="text-primary">CINEMA</span>
+                DESI <span className="text-primary">VIDEOS</span>
               </span>
             </div>
           </Link>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            {/* Search */}
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
               <input 
                 type="text"
                 value={searchValue}
                 onChange={e => handleSearch(e.target.value)}
-                placeholder="Search videos..."
-                className="bg-white/5 border border-white/10 rounded-full py-2 pl-11 pr-10 text-sm w-64 focus:outline-none focus:border-primary/50 transition-all text-foreground placeholder:text-muted-foreground/50"
+                placeholder="Search..."
+                className="bg-white/5 border border-white/10 rounded-full py-2 pl-11 pr-4 text-sm w-64 focus:outline-none focus:border-primary/50 transition-all text-foreground placeholder:text-muted-foreground/50"
               />
-              {searchValue && (
-                <button
-                  onClick={() => handleSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
             </div>
 
+            {/* Links */}
             <div className="flex items-center gap-4">
-              {navLinks.map((link) => (
-                <Link key={link.href} href={link.href}>
-                  <div className={`
-                    flex items-center gap-2 text-xs font-bold transition-all cursor-pointer px-4 py-2 rounded-lg uppercase tracking-wider
-                    ${location === link.href ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"}
-                  `}>
-                    <link.icon className="w-4 h-4" />
-                    {link.name}
+              
+              {/* 🏁 HOVER DROPDOWN */}
+              <div className="relative group py-4">
+                <button className="flex items-center gap-2 text-xs font-bold text-muted-foreground group-hover:text-primary transition-all uppercase tracking-widest outline-none">
+                  Browse <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                
+                {/* Dropdown Menu */}
+                <div className="absolute top-full left-0 w-56 bg-background/90 backdrop-blur-2xl border border-white/10 rounded-2xl py-3 opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto transition-all duration-200 shadow-2xl z-[60]">
+                  {/* Top rated / Trending shortcut */}
+                  <div className="px-2 pb-2 mb-2 border-b border-white/5">
+                    <Link href="/categories">
+                      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-primary/10 text-primary transition-colors cursor-pointer">
+                        <LayoutGrid className="w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">All Categories</span>
+                      </div>
+                    </Link>
                   </div>
-                </Link>
-              ))}
+
+                  <div className="max-h-[300px] overflow-y-auto px-2 space-y-1">
+                    {CATEGORIES.slice(0, 8).map((cat) => (
+                      <Link key={cat.name} href={cat.href}>
+                        <div className="px-4 py-2.5 rounded-xl text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-white/5 cursor-pointer uppercase tracking-widest transition-colors flex items-center justify-between group/item">
+                          <span>{cat.name}</span>
+                          <span className="opacity-0 group-hover/item:opacity-100 transition-opacity">{cat.icon}</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <Link href="/upload">
+                <div className={`text-xs font-bold transition-all cursor-pointer px-4 py-2 rounded-lg uppercase tracking-widest ${location === "/upload" ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"}`}>
+                  Upload
+                </div>
+              </Link>
             </div>
 
             <div className="h-6 w-[1px] bg-white/10 mx-2" />
 
             <Link href="/admin">
               <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest">
-                <LogIn className="w-4 h-4 mr-2" />
                 ADMIN
               </Button>
             </Link>
           </div>
 
-          {/* Mobile menu button */}
-          <div className="md:hidden flex items-center">
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="text-muted-foreground hover:text-foreground p-2"
-            >
-              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          {/* Mobile Menu Trigger */}
+          <div className="md:hidden">
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-muted-foreground p-2">
+              {isMenuOpen ? <X /> : <Menu />}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Mobile Navigation */}
+      {/* Mobile Nav */}
       {isMenuOpen && (
-        <div className="md:hidden bg-[#0a0a0a] border-b border-white/5 px-4 pt-2 pb-6 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input 
-              type="text"
-              value={searchValue}
-              onChange={e => { handleSearch(e.target.value); setIsMenuOpen(false); }}
-              placeholder="Search videos..."
-              className="bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm w-full text-white"
-            />
-          </div>
-          {navLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              <div 
-                onClick={() => setIsMenuOpen(false)}
-                className={`
-                  flex items-center gap-3 py-2 text-sm font-bold uppercase tracking-wider
-                  ${location === link.href ? "text-primary" : "text-muted-foreground hover:text-foreground"}
-                `}
-              >
-                <link.icon className="w-5 h-5" />
-                {link.name}
-              </div>
-            </Link>
-          ))}
-          <Link href="/admin">
-            <div 
-              onClick={() => setIsMenuOpen(false)}
-              className="flex items-center gap-3 py-2 text-sm font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground"
-            >
-              <LogIn className="w-5 h-5" />
-              Admin Login
+        <div className="md:hidden bg-background border-b border-white/5 px-4 pt-4 pb-8 space-y-4">
+          <Link href="/categories">
+            <div onClick={() => setIsMenuOpen(false)} className="w-full flex items-center justify-center gap-2 py-3 bg-primary/10 border border-primary/20 rounded-xl text-primary text-[10px] font-bold uppercase tracking-widest">
+              <LayoutGrid className="w-4 h-4" />
+              View All Categories
             </div>
           </Link>
+
+          <div className="grid grid-cols-2 gap-2">
+            {CATEGORIES.slice(0, 10).map((cat) => (
+              <Link key={cat.name} href={cat.href}>
+                <div onClick={() => setIsMenuOpen(false)} className="px-4 py-3 bg-white/5 rounded-lg text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center justify-between">
+                  {cat.name}
+                  <span>{cat.icon}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+          <Link href="/upload"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center border-t border-white/5 pt-4">Upload Video</div></Link>
+          <Link href="/admin"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">Admin Access</div></Link>
         </div>
       )}
     </nav>

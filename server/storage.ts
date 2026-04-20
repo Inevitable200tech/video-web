@@ -24,6 +24,7 @@ export interface IStorage {
   createVideo(video: InsertVideo, userId?: string): Promise<Video>;
   incrementViews(hash: string): Promise<Video | null>;
   incrementLikes(hash: string): Promise<Video | null>;
+  getCategoryThumbnails(categories: { name: string, href: string }[]): Promise<Record<string, string>>;
   deleteVideo(id: string): Promise<boolean>;
 
   // Comment operations
@@ -111,6 +112,31 @@ export class MongoStorage implements IStorage {
     ).lean().exec();
     if (!doc) return null;
     return { ...doc, id: (doc as any)._id.toString() } as unknown as Video;
+  }
+
+  async getCategoryThumbnails(categories: { name: string, href: string }[]): Promise<Record<string, string>> {
+    const results: Record<string, string> = {};
+    
+    await Promise.all(categories.map(async (cat) => {
+      const urlParams = new URLSearchParams(cat.href.split('?')[1]);
+      const category = urlParams.get('category');
+      const q = urlParams.get('q');
+      
+      let filter: any = {};
+      if (category) filter.category = category;
+      if (q) filter.title = { $regex: q, $options: 'i' };
+      
+      const topVideo = await VideoModel.findOne(filter)
+        .sort({ views: -1, likes: -1, uploadedAt: -1 })
+        .lean()
+        .exec() as any;
+        
+      if (topVideo && topVideo.thumbnailHash) {
+        results[cat.name] = topVideo.thumbnailHash;
+      }
+    }));
+    
+    return results;
   }
 
   async deleteVideo(id: string): Promise<boolean> {

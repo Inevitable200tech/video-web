@@ -200,7 +200,7 @@ export default function VideoLibrary() {
             <header className="mb-12 flex flex-col sm:flex-row sm:items-center justify-between gap-6 border-b border-white/5 pb-8">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight mb-2 uppercase">
-                  {isSearching ? `Search: ${searchQuery}` : activeSort}
+                  {searchQuery === "Mallu" ? "Mallu Collection" : isSearching ? `Search: ${searchQuery}` : activeSort}
                 </h1>
                 <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">
                   {isMainLoading ? "Loading..." : `${total} videos found`}

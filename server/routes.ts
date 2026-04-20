@@ -8,6 +8,7 @@ import {
   insertCommentSchema,
   VideoModel,
 } from "@shared/schema";
+import { CATEGORIES } from "@shared/constants";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
 import multer from "multer";
@@ -221,6 +222,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(video);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to like video" });
+    }
+  });
+
+  app.get("/api/categories/thumbnails", async (_req, res) => {
+    try {
+      const thumbnails = await storage.getCategoryThumbnails(CATEGORIES);
+      res.json(thumbnails);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch category thumbnails" });
     }
   });
 
