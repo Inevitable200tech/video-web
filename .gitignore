@@ -10,4 +10,5 @@ local
 *.env
 *.replit
 cert_env
+cert.env
 
