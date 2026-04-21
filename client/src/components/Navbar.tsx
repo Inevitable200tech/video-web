@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { CATEGORIES } from "@shared/constants";
 import { useAuth } from "@/hooks/use-auth";
+import { UserButton } from "@clerk/clerk-react";
 
 export default function Navbar() {
   const [location, navigate] = useLocation();
@@ -108,34 +109,42 @@ export default function Navbar() {
             <div className="h-6 w-[1px] bg-white/10 mx-2" />
 
             {!isLoading && user ? (
-              <div className="flex items-center gap-3">
-                <Link href={`/profile/${user.username}`}>
-                  <div className="flex items-center gap-2 cursor-pointer group">
-                    <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center group-hover:border-primary/60 transition-colors">
-                      <User className="w-3.5 h-3.5 text-primary" />
-                    </div>
-                    <span className="text-[10px] font-bold text-muted-foreground group-hover:text-primary uppercase tracking-widest transition-colors">{user.username}</span>
-                  </div>
-                </Link>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={handleLogout}
-                  disabled={logoutMutation.isPending}
-                  className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest"
-                >
-                  Logout
-                </Button>
+              <div className="flex items-center gap-6">
                 {user.role === "admin" && (
                   <Link href="/admin">
-                    <Button variant="outline" size="sm" className="border-primary/20 text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest">
-                      Admin Panel
+                    <Button variant="outline" size="sm" className="border-primary/20 text-primary hover:bg-primary/10 font-bold text-[10px] h-8 uppercase tracking-widest">
+                      Admin
                     </Button>
                   </Link>
                 )}
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-end mr-1 hidden lg:flex">
+                    <span className="text-[10px] font-black text-white uppercase tracking-tighter leading-none">{user.username}</span>
+                    <span className="text-[8px] font-bold text-primary/60 uppercase tracking-widest">{user.role}</span>
+                  </div>
+                  <UserButton 
+                    afterSignOutUrl="/"
+                    appearance={{
+                      elements: {
+                        userButtonAvatarBox: "w-9 h-9 border-2 border-primary/20 hover:border-primary/50 transition-all",
+                        userButtonTrigger: "focus:shadow-none",
+                        userButtonPopoverFooter: "hidden",
+                        footer: "hidden"
+                      }
+                    }}
+                    userProfileProps={{
+                      appearance: {
+                        elements: {
+                          footer: "hidden",
+                          footerAction: "hidden"
+                        }
+                      }
+                    }}
+                  />
+                </div>
               </div>
             ) : (
-              <Link href="/auth">
+              <Link href="/login">
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest">
                   Sign In
                 </Button>
@@ -173,7 +182,7 @@ export default function Navbar() {
           </div>
           <Link href="/upload"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center border-t border-white/5 pt-4">Upload Video</div></Link>
           {!user ? (
-            <Link href="/auth"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">Sign In</div></Link>
+            <Link href="/login"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">Sign In</div></Link>
           ) : (
             <div className="flex flex-col gap-2">
               <Link href={`/profile/${user.username}`}>

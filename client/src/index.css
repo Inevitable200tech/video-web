@@ -155,3 +155,10 @@ video::-webkit-media-controls-volume-slider,
 video::-webkit-media-controls-timeline {
   filter: brightness(1.2);
 }
+
+/* Force hide Clerk footers globally */
+.cl-footer,
+.cl-userButtonPopoverFooter,
+.cl-internal-1jpib5j,.cl-internal-1dauvpw {
+  display: none !important;
+}

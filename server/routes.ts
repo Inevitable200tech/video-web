@@ -11,18 +11,19 @@ import {
   CommentModel,
   type Video,
   insertSourceSchema,
+  OTPModel,
 } from "@shared/schema";
 import { CATEGORIES } from "@shared/constants";
 import { z } from "zod";
-import jwt from "jsonwebtoken";
-import multer from "multer";
-import axios from "axios";
-import FormData from "form-data";
-import dotenv from "dotenv";
-import path from "path";
 import fs from "fs";
 import http from "http";
 import https from "https";
+import axios from "axios";
+import path from "path";
+import dotenv from "dotenv";
+import multer from "multer";
+import FormData from "form-data";
+import { getAuth, clerkClient } from "@clerk/express";
 
 // Reusable agents for keep-alive connections to speed up internal API calls
 const httpAgent = new http.Agent({ keepAlive: true });
@@ -42,6 +43,7 @@ const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "password";
 const STORAGE_API_URL = process.env.STORAGE_API_URL || "http://localhost:3000";
 const STORAGE_API_TOKEN = process.env.STORAGE_API_TOKEN || "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "[EMAIL_ADDRESS]";
 
 // Simple in-memory cache for playback URLs to speed up loading
 const playbackCache = new Map<string, { url: string; expires: number }>();
@@ -54,103 +56,53 @@ export const upload = multer({
 });
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
+  const { userId } = getAuth(req);
   
-  if (!token) {
+  if (!userId) {
     return res.status(401).json({ message: "Authentication required" });
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
-    const user = await storage.getUser(decoded.userId);
+    let user = await storage.getUserByExternalId(userId);
+    
+    // Always sync with Clerk to ensure role updates are picked up
+    const clerkUser = await clerkClient.users.getUser(userId);
+    const email = clerkUser.emailAddresses[0]?.emailAddress || `${clerkUser.id}@no-email.com`;
+    const username = clerkUser.username || clerkUser.firstName || email.split("@")[0] || "User";
+    const role = ((clerkUser.publicMetadata?.role as string) || "user") as "admin" | "user";
+
     if (!user) {
-      return res.status(401).json({ message: "User not found" });
+      user = await storage.createUser({
+        externalId: userId,
+        username,
+        email,
+        role,
+        isVerified: true
+      });
+    } else if (user.role !== role || user.username !== username) {
+      // Sync updates if they changed in Clerk
+      user = await storage.updateUser(user._id.toString(), { role, username });
     }
+    
     (req as any).user = user;
     next();
   } catch (err) {
-    res.status(401).json({ message: "Invalid or expired token" });
+    console.error("[AUTH ERROR]", err);
+    res.status(401).json({ message: "Invalid or expired session" });
   }
 }
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-});
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth Routes
-  app.post("/api/register", async (req, res) => {
-    try {
-      const data = insertUserSchema.parse(req.body);
-      const existingUser = await storage.getUserByUsername(data.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-
-      // Password hashing would go here in a production app
-      // For this implementation, we'll store it as is or use a simple hash
-      const user = await storage.createUser(data);
-      const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
-      
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-
-      res.status(201).json({ user: { id: user._id, username: user.username, role: user.role }, token });
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/login", async (req, res) => {
-    const { username, password } = req.body;
-    
-    // Check for admin hardcoded credentials first (for legacy compatibility)
-    if (username === ADMIN_USER && password === ADMIN_PASS) {
-      // Find or create admin user in DB
-      let admin = await storage.getUserByUsername(ADMIN_USER);
-      if (!admin) {
-        admin = await storage.createUser({ username: ADMIN_USER, password: ADMIN_PASS, role: "admin" });
-      }
-      
-      const token = jwt.sign({ userId: admin._id, role: "admin" }, JWT_SECRET, { expiresIn: "24h" });
-      res.cookie("token", token, { 
-        httpOnly: true, 
-        secure: process.env.NODE_ENV === "production", 
-        sameSite: "lax",
-        maxAge: 24 * 60 * 60 * 1000
-      });
-      return res.json({ user: { id: admin._id, username: admin.username, role: admin.role }, token });
-    }
-
-    // Regular user login
-    const user = await storage.getUserByUsername(username);
-    if (user && user.password === password) { // Simple check for now
-      const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-      res.json({ user: { id: user._id, username: user.username, role: user.role }, token });
-    } else {
-      res.status(401).json({ message: "Invalid credentials" });
-    }
-  });
-
-  app.post("/api/logout", (req, res) => {
-    res.clearCookie("token");
-    res.json({ success: true });
-  });
-
   app.get("/api/me", requireAuth, (req, res) => {
     const user = (req as any).user;
-    res.json({ id: user._id, username: user.username, role: user.role, bio: user.bio, avatarHash: user.avatarHash });
+    res.json({ 
+      id: user._id || user.id, 
+      username: user.username, 
+      role: user.role, 
+      bio: user.bio, 
+      avatarHash: user.avatarHash 
+    });
   });
 
   app.get("/api/users/:username", async (req, res) => {
@@ -200,11 +152,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: "Admin access required" });
     }
     try {
-      const users = await storage.getUsers();
-      console.log(`[ADMIN] Fetched ${users.length} users`);
-      res.json(users);
+      // 1. Fetch all users from Clerk
+      const clerkUsers = await clerkClient.users.getUserList();
+      console.log(`[ADMIN] Found ${clerkUsers.data.length} users in Clerk`);
+
+      // 2. Ensure each Clerk user exists in our local DB
+      const syncedUsers = await Promise.all(clerkUsers.data.map(async (clerkUser) => {
+        let localUser = await storage.getUserByExternalId(clerkUser.id);
+        const email = clerkUser.emailAddresses[0]?.emailAddress || `${clerkUser.id}@no-email.com`;
+        const username = clerkUser.username || clerkUser.firstName || email.split("@")[0] || "User";
+        const role = (clerkUser.publicMetadata?.role as string) || "user";
+
+        if (!localUser) {
+          console.log(`[ADMIN] Pre-syncing new Clerk user: ${username}`);
+          localUser = await storage.createUser({
+            externalId: clerkUser.id,
+            username,
+            email,
+            role: role as "admin" | "user",
+            isVerified: true
+          });
+        } else if (localUser.role !== role) {
+          // Sync role if it changed in Clerk
+          localUser = await storage.updateUser(localUser._id.toString(), { role: role as "admin" | "user" });
+        }
+        if (!localUser) return null;
+        
+        // Return a clean object with 'id' for the frontend
+        const userObj = (localUser as any).toObject ? (localUser as any).toObject() : localUser;
+        return {
+          ...userObj,
+          id: userObj._id?.toString() || userObj.id
+        };
+      }));
+
+      res.json(syncedUsers.filter(u => u !== null));
     } catch (error) {
-      console.error("[ADMIN] Failed to fetch users:", error);
+      console.error("[ADMIN] Failed to fetch/sync users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
     }
   });
@@ -215,6 +199,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       const { id } = req.params;
+      if (!id || id === "undefined") {
+        return res.status(400).json({ message: "Invalid user ID" });
+      }
       const updates = req.body;
       const user = await storage.updateUser(id, updates);
       if (!user) return res.status(404).json({ message: "User not found" });
@@ -230,10 +217,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       const { id } = req.params;
+      
+      if (!id || id === "undefined") {
+        return res.status(400).json({ message: "Invalid user ID" });
+      }
+
+      const userToDelete = await storage.getUser(id);
+      
+      if (!userToDelete) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // 1. Delete from Clerk if it's a Clerk user
+      if (userToDelete.externalId) {
+        try {
+          await clerkClient.users.deleteUser(userToDelete.externalId);
+          console.log(`[ADMIN] Deleted user ${id} from Clerk (${userToDelete.externalId})`);
+        } catch (clerkErr: any) {
+          // If user is already gone from Clerk, we continue to delete from DB
+          console.warn(`[ADMIN] Clerk deletion warning for ${id}:`, clerkErr.message);
+        }
+      }
+
+      // 2. Delete from our local DB
       const success = await storage.deleteUser(id);
-      if (!success) return res.status(404).json({ message: "User not found" });
-      res.json({ message: "User deleted successfully" });
+      if (!success) return res.status(404).json({ message: "User not found in DB" });
+      
+      res.json({ message: "User removed from system and Clerk successfully" });
     } catch (error) {
+      console.error("[ADMIN] Failed to delete user:", error);
       res.status(500).json({ message: "Failed to delete user" });
     }
   });

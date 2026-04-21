@@ -1,101 +1,55 @@
 import { createContext, ReactNode, useContext } from "react";
 import {
   useQuery,
-  useMutation,
-  UseMutationResult,
 } from "@tanstack/react-query";
-import { User as SelectUser, InsertUser } from "@shared/schema";
-import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { User as SelectUser } from "@shared/schema";
+import { getQueryFn, queryClient } from "../lib/queryClient";
+import { useUser, useClerk } from "@clerk/clerk-react";
 
 type AuthContextType = {
   user: SelectUser | null;
   isLoading: boolean;
   error: Error | null;
-  loginMutation: UseMutationResult<SelectUser, Error, LoginData>;
-  logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
+  logoutMutation: { mutate: () => Promise<void>; isPending: boolean };
 };
-
-type LoginData = Pick<InsertUser, "username" | "password">;
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { toast } = useToast();
+  const { isLoaded: clerkLoaded, isSignedIn } = useUser();
+  const { signOut } = useClerk();
   
   const {
     data: user,
     error,
-    isLoading,
+    isLoading: dbLoading,
   } = useQuery<SelectUser | null, Error>({
     queryKey: ["/api/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: clerkLoaded && isSignedIn,
+    retry: false,
   });
 
-  const loginMutation = useMutation({
-    mutationFn: async (credentials: LoginData) => {
-      const res = await apiRequest("POST", "/api/login", credentials);
-      const data = await res.json();
-      return data.user;
-    },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/me"], user);
-      toast({
-        title: "Welcome back",
-        description: `Signed in as ${user.username}`,
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Login failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  const isLoading = !clerkLoaded || (isSignedIn && dbLoading);
 
-  const registerMutation = useMutation({
-    mutationFn: async (credentials: InsertUser) => {
-      const res = await apiRequest("POST", "/api/register", credentials);
-      const data = await res.json();
-      return data.user;
-    },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/me"], user);
-      toast({
-        title: "Registration successful",
-        description: "Your account has been created.",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Registration failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  // Diagnostic logging
+  if (typeof window !== 'undefined') {
+    console.log("[AUTH-STATUS]", {
+      clerkLoaded,
+      isSignedIn,
+      dbLoading,
+      hasUser: !!user,
+      finalLoading: isLoading
+    });
+  }
 
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/logout");
-    },
-    onSuccess: () => {
+  const logoutMutation = {
+    mutate: async () => {
+      await signOut();
       queryClient.setQueryData(["/api/me"], null);
-      toast({
-        title: "Logged out",
-        description: "You have been successfully signed out.",
-      });
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Logout failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+    isPending: false,
+  };
 
   return (
     <AuthContext.Provider
@@ -103,9 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: user ?? null,
         isLoading,
         error,
-        loginMutation,
         logoutMutation,
-        registerMutation,
       }}
     >
       {children}

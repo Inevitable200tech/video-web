@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import cookieParser from "cookie-parser";
 import { randomUUID } from "crypto";
+import { clerkMiddleware } from '@clerk/express'
 
 const rootEnvPath = path.resolve("cert.env");
 const folderEnvPath = path.resolve("cert_env", "cert.env");
@@ -20,6 +21,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+app.use(clerkMiddleware());
 
 
 

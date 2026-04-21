@@ -5,8 +5,11 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface User extends Document {
   id: string;
+  externalId?: string; // Clerk userId (optional if using internal auth)
   username: string;
+  email: string;
   password?: string;
+  isVerified: boolean;
   role: "admin" | "user";
   bio?: string;
   avatarHash?: string;
@@ -14,8 +17,11 @@ export interface User extends Document {
 }
 
 export const userSchema = new Schema<User>({
+  externalId: { type: String, unique: true, sparse: true },
   username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
   password: { type: String },
+  isVerified: { type: Boolean, default: false },
   role: { type: String, enum: ["admin", "user"], default: "user" },
   bio: { type: String },
   avatarHash: { type: String },
@@ -24,7 +30,10 @@ export const userSchema = new Schema<User>({
 
 export const insertUserSchema = z.object({
   username: z.string().min(3).max(20),
+  email: z.string().email(),
   password: z.string().min(6).optional(),
+  externalId: z.string().optional(),
+  isVerified: z.boolean().default(false),
   role: z.enum(["admin", "user"]).default("user"),
   bio: z.string().max(200).optional(),
 });
@@ -119,12 +128,27 @@ export const insertSourceSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
+// ---------------- OTP MANAGEMENT ----------------
+
+export interface OTP extends Document {
+  email: string;
+  code: string;
+  createdAt: Date;
+}
+
+export const otpSchema = new Schema<OTP>({
+  email: { type: String, required: true },
+  code: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now, expires: 600 } // Expires in 10 minutes
+});
+
 // ---------------- EXPORT MODELS ----------------
 
 export const UserModel = (mongoose.models && mongoose.models.User) || mongoose.model<User>("User", userSchema);
 export const VideoModel = (mongoose.models && mongoose.models.Video) || mongoose.model<Video>("Video", videoSchema);
 export const CommentModel = (mongoose.models && mongoose.models.Comment) || mongoose.model<Comment>("Comment", commentSchema);
 export const SourceModel = (mongoose.models && mongoose.models.Source) || mongoose.model<Source>("Source", sourceSchema);
+export const OTPModel = (mongoose.models && mongoose.models.OTP) || mongoose.model<OTP>("OTP", otpSchema);
 
 // Types for insertion
 export type InsertUser = z.infer<typeof insertUserSchema>;

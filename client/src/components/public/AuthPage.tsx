@@ -1,56 +1,60 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, LogIn, UserPlus, ArrowRight, ShieldCheck, Mail, Lock, User } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
-import { queryClient } from "@/lib/queryClient";
+import { LogIn, UserPlus, ShieldCheck } from "lucide-react";
+import { SignIn, SignUp, useUser } from "@clerk/clerk-react";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function AuthPage() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
+  const { user, isLoading } = useAuth();
+  const { isSignedIn } = useUser();
+  
+  // URL-aware mode selection
+  const [isLogin, setIsLogin] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const params = new URLSearchParams(window.location.search);
+    const path = window.location.pathname;
+    return !(params.get("mode") === "signup" || path.includes("verify") || path.includes("sign-up"));
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  useEffect(() => {
+    // Sync mode if URL changes manually
+    const params = new URLSearchParams(window.location.search);
+    const path = window.location.pathname;
+    if (params.get("mode") === "signup" || path.includes("verify") || path.includes("sign-up")) {
+      setIsLogin(false);
+    } else if (params.get("mode") === "login") {
+      setIsLogin(true);
+    }
+  }, [window.location.search, window.location.pathname]);
 
-    try {
-      const endpoint = isLogin ? "/api/login" : "/api/register";
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Authentication failed");
-      }
-
-      toast({
-        title: isLogin ? "Welcome back!" : "Account created!",
-        description: isLogin ? `Signed in as ${username}` : "Your account is ready to use.",
-      });
-
-      // Refetch user data
-      await queryClient.invalidateQueries({ queryKey: ["/api/me"] });
-      
-      // Redirect to home
+  useEffect(() => {
+    // Only redirect to home if we are absolutely sure the user is in our DB
+    if (!isLoading && user && isSignedIn) {
       setLocation("/");
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
-    } finally {
-      setIsLoading(false);
+    }
+  }, [user, isLoading, isSignedIn, setLocation]);
+
+  const clerkAppearance = {
+    elements: {
+      rootBox: "w-full",
+      card: "bg-white/[0.02] backdrop-blur-sm border border-white/5 shadow-xl",
+      headerTitle: "text-white font-bold",
+      headerSubtitle: "text-muted-foreground",
+      socialButtonsBlockButton: "bg-white/5 border-white/10 text-white hover:bg-white/10",
+      formButtonPrimary: "bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase tracking-wider",
+      footerActionText: "text-muted-foreground",
+      footerActionLink: "text-primary hover:text-primary/90",
+      formFieldLabel: "text-muted-foreground font-medium",
+      formFieldInput: "bg-white/5 border-white/10 text-white focus:border-primary/50 transition-all",
+      otpCodeFieldInput: "bg-white/10 border-white/20 text-white font-bold text-xl rounded-xl focus:border-primary focus:ring-1 focus:ring-primary",
+      formResendCodeLink: "text-white hover:text-white/80 transition-colors",
+      dividerLine: "bg-white/10",
+      dividerText: "text-muted-foreground",
+      footer: "hidden",
+      footerAction: "hidden"
     }
   };
 
@@ -64,9 +68,9 @@ export default function AuthPage() {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md relative"
+        className="w-full max-w-md relative z-10"
       >
-        <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden">
+        <div className="bg-white/[0.03] backdrop-blur-3xl border border-white/10 rounded-3xl p-8 shadow-2xl min-h-[550px] flex flex-col items-center">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
           
           <div className="flex flex-col items-center mb-8 text-center">
@@ -81,54 +85,66 @@ export default function AuthPage() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Username</label>
-              <div className="relative group">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input
-                  type="text"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
-                  className="bg-white/5 border-white/10 rounded-xl pl-11 h-12 focus:border-primary/50 transition-all text-white placeholder:text-muted-foreground/30"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Password</label>
-              <div className="relative group">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="bg-white/5 border-white/10 rounded-xl pl-11 h-12 focus:border-primary/50 transition-all text-white placeholder:text-muted-foreground/30"
-                />
-              </div>
-            </div>
-
-            <Button 
-              type="submit" 
-              disabled={isLoading}
-              className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase tracking-widest shadow-lg shadow-primary/20 transition-all active:scale-95 mt-4"
-            >
-              {isLoading ? (
-                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          <div className="w-full clerk-container relative min-h-[300px] flex items-center justify-center">
+            <AnimatePresence mode="wait">
+              {isSignedIn && isLoading ? (
+                <motion.div
+                  key="loading-sync"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.05 }}
+                  className="flex flex-col items-center gap-6 p-8 text-center"
+                >
+                  <div className="relative">
+                    <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                    <ShieldCheck className="w-6 h-6 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-bold text-white tracking-tight">Finalizing Session</h2>
+                    <p className="text-muted-foreground text-sm max-w-[200px] mx-auto">
+                      Synchronizing your profile with our secure database...
+                    </p>
+                  </div>
+                </motion.div>
+              ) : isLogin ? (
+                <motion.div
+                  key="login"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="w-full flex justify-center"
+                >
+                  <SignIn 
+                    routing="path" 
+                    path="/login" 
+                    signUpUrl="/login?mode=signup"
+                    forceRedirectUrl="/"
+                    fallbackRedirectUrl="/"
+                    appearance={clerkAppearance}
+                  />
+                </motion.div>
               ) : (
-                <span className="flex items-center gap-2">
-                  {isLogin ? "Sign In" : "Register Now"}
-                  <ArrowRight className="w-4 h-4" />
-                </span>
+                <motion.div
+                  key="signup"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="w-full flex justify-center"
+                >
+                  <SignUp 
+                    routing="path" 
+                    path="/login" 
+                    signInUrl="/login?mode=login"
+                    forceRedirectUrl="/"
+                    fallbackRedirectUrl="/"
+                    appearance={clerkAppearance}
+                  />
+                </motion.div>
               )}
-            </Button>
-          </form>
+            </AnimatePresence>
+          </div>
 
-          <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center gap-4">
+          <div className="mt-auto pt-6 border-t border-white/5 flex flex-col items-center gap-4 w-full">
             <button 
               onClick={() => setIsLogin(!isLogin)}
               className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors uppercase tracking-widest"
@@ -138,7 +154,7 @@ export default function AuthPage() {
             
             <div className="flex items-center gap-2 text-[10px] font-bold text-primary/40 uppercase tracking-[0.2em]">
               <ShieldCheck className="w-3 h-3" />
-              Secure Authentication
+              Secure Authentication by Clerk
             </div>
           </div>
         </div>

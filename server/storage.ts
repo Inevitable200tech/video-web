@@ -12,16 +12,25 @@ import {
   type Source,
   type InsertSource,
   SourceModel,
+  type OTP,
+  OTPModel,
 } from "@shared/schema";
 
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | null>;
+  getUserByExternalId(externalId: string): Promise<User | null>;
   getUserByUsername(username: string): Promise<User | null>;
+  getUserByEmail(email: string): Promise<User | null>;
   getUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | null>;
   deleteUser(id: string): Promise<boolean>;
+
+  // OTP operations
+  createOTP(email: string, code: string): Promise<OTP>;
+  getOTP(email: string, code: string): Promise<OTP | null>;
+  deleteOTP(email: string): Promise<void>;
 
   // Source operations
   getSources(activeOnly?: boolean): Promise<Source[]>;
@@ -52,8 +61,16 @@ export class MongoStorage implements IStorage {
     return await UserModel.findById(id).lean().exec() as User | null;
   }
 
+  async getUserByExternalId(externalId: string): Promise<User | null> {
+    return await UserModel.findOne({ externalId }).lean().exec() as User | null;
+  }
+
   async getUserByUsername(username: string): Promise<User | null> {
     return await UserModel.findOne({ username }).lean().exec() as User | null;
+  }
+
+  async getUserByEmail(email: string): Promise<User | null> {
+    return await UserModel.findOne({ email }).lean().exec() as User | null;
   }
 
   async getUsers(): Promise<User[]> {
@@ -230,6 +247,22 @@ export class MongoStorage implements IStorage {
   async deleteSource(id: string): Promise<boolean> {
     const result = await SourceModel.findByIdAndDelete(id).exec();
     return !!result;
+  }
+
+  // OTP operations
+  async createOTP(email: string, code: string): Promise<OTP> {
+    // Delete any existing OTP for this email first
+    await OTPModel.deleteMany({ email });
+    const otp = await OTPModel.create({ email, code });
+    return otp.toObject() as OTP;
+  }
+
+  async getOTP(email: string, code: string): Promise<OTP | null> {
+    return await OTPModel.findOne({ email, code }).lean().exec() as OTP | null;
+  }
+
+  async deleteOTP(email: string): Promise<void> {
+    await OTPModel.deleteMany({ email }).exec();
   }
 }
 

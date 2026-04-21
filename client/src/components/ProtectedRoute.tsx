@@ -11,9 +11,9 @@ export const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const { user, isLoading } = useAuth();
 
   useEffect(() => {
-    // If done loading and no user at all, redirect to auth
+    // Only redirect if we are SURE there is no user and we aren't loading anything
     if (!isLoading && !user) {
-      setLocation("/auth");
+      setLocation("/login");
     }
   }, [user, isLoading, setLocation]);
 

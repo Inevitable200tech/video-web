@@ -507,8 +507,8 @@ export default function AdminDashboard() {
                     </TableRow>
                   ))
                 ) : users && users.length > 0 ? (
-                  users.map((u) => (
-                    <TableRow key={u.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
+                  users.map((u: any) => (
+                    <TableRow key={u.id || u._id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
                       <TableCell className="px-6 py-4 font-bold text-foreground">
                         <Link href={`/profile/${u.username}`}>
                           <span className="hover:text-primary cursor-pointer transition-colors">{u.username}</span>
@@ -531,7 +531,7 @@ export default function AdminDashboard() {
                           disabled={u.username === user?.username}
                           className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 disabled:opacity-0"
                           onClick={() => updateUserMutation.mutate({ 
-                            id: u.id, 
+                            id: u.id || u._id, 
                             updates: { role: u.role === "admin" ? "user" : "admin" } 
                           })}
                         >
@@ -542,7 +542,7 @@ export default function AdminDashboard() {
                           size="icon"
                           disabled={u.username === user?.username}
                           className="w-8 h-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 disabled:opacity-0"
-                          onClick={() => { if (confirm(`Delete user ${u.username}?`)) deleteUserMutation.mutate(u.id); }}
+                          onClick={() => { if (confirm(`Delete user ${u.username}?`)) deleteUserMutation.mutate(u.id || u._id); }}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
