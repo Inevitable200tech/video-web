@@ -7,6 +7,7 @@ import {
   insertUserSchema,
   insertCommentSchema,
   VideoModel,
+  type Video,
 } from "@shared/schema";
 import { CATEGORIES } from "@shared/constants";
 import { z } from "zod";
@@ -147,6 +148,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/me", requireAuth, (req, res) => {
     const user = (req as any).user;
     res.json({ id: user._id, username: user.username, role: user.role, bio: user.bio, avatarHash: user.avatarHash });
+  });
+
+  app.get("/api/users/:username", async (req, res) => {
+    try {
+      const { username } = req.params;
+      const user = await storage.getUserByUsername(username);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      // Get videos uploaded by this user
+      const userVideos = await storage.getVideosByUser(String(user._id));
+
+      // Aggregate stats
+      const totalViews = userVideos.reduce((sum: number, v: Video) => sum + (v.views || 0), 0);
+      const totalLikes = userVideos.reduce((sum: number, v: Video) => sum + (v.likes || 0), 0);
+
+      res.json({
+        id: user._id,
+        username: user.username,
+        bio: user.bio || null,
+        role: user.role,
+        createdAt: user.createdAt,
+        stats: {
+          totalVideos: userVideos.length,
+          totalViews,
+          totalLikes,
+        },
+        videos: userVideos.map(v => ({
+          id: v.id,
+          title: v.title,
+          hash: v.hash,
+          thumbnailHash: v.thumbnailHash,
+          views: v.views,
+          likes: v.likes,
+          uploadedAt: v.uploadedAt,
+          category: v.category,
+        })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // ═══════════ ADMIN USER MANAGEMENT ═══════════
+  app.get("/api/admin/users", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      console.log(`[ADMIN] Admin access required`); 
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const users = await storage.getUsers();
+      console.log(`[ADMIN] Fetched ${users.length} users`);
+      res.json(users);
+    } catch (error) {
+      console.error("[ADMIN] Failed to fetch users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const user = await storage.updateUser(id, updates);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteUser(id);
+      if (!success) return res.status(404).json({ message: "User not found" });
+      res.json({ message: "User deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete user" });
+    }
   });
 
   // ═══════════ VIDEO SYNC LOGIC ═══════════

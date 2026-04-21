@@ -15,12 +15,16 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | null>;
   getUserByUsername(username: string): Promise<User | null>;
+  getUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, updates: Partial<User>): Promise<User | null>;
+  deleteUser(id: string): Promise<boolean>;
 
   // Video operations
   getVideos(category?: string, skip?: number, limit?: number, q?: string, sortBy?: string): Promise<{ videos: Video[], total: number }>;
   getVideoByHash(hash: string): Promise<Video | null>;
   getVideoById(id: string): Promise<Video | null>;
+  getVideosByUser(userId: string): Promise<Video[]>;
   createVideo(video: InsertVideo, userId?: string): Promise<Video>;
   incrementViews(hash: string): Promise<Video | null>;
   incrementLikes(hash: string): Promise<Video | null>;
@@ -43,9 +47,25 @@ export class MongoStorage implements IStorage {
     return await UserModel.findOne({ username }).lean().exec() as User | null;
   }
 
+  async getUsers(): Promise<User[]> {
+    const docs = await UserModel.find().sort({ createdAt: -1 }).lean().exec();
+    return docs.map(doc => ({ ...doc, id: (doc as any)._id.toString() })) as unknown as User[];
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const user = await UserModel.create(insertUser);
     return user.toObject() as User;
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
+    const doc = await UserModel.findByIdAndUpdate(id, { $set: updates }, { new: true }).lean().exec();
+    if (!doc) return null;
+    return { ...doc, id: (doc as any)._id.toString() } as unknown as User;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await UserModel.findByIdAndDelete(id).exec();
+    return !!result;
   }
 
   // Video operations
@@ -85,6 +105,14 @@ export class MongoStorage implements IStorage {
     const doc = await VideoModel.findById(id).lean().exec();
     if (!doc) return null;
     return { ...doc, id: (doc as any)._id.toString() } as unknown as Video;
+  }
+
+  async getVideosByUser(userId: string): Promise<Video[]> {
+    const docs = await VideoModel.find({ uploadedBy: new mongoose.Types.ObjectId(userId) })
+      .sort({ uploadedAt: -1 })
+      .lean()
+      .exec();
+    return docs.map(doc => ({ ...doc, id: (doc as any)._id.toString() })) as unknown as Video[];
   }
 
   async createVideo(insertVideo: InsertVideo, userId?: string): Promise<Video> {

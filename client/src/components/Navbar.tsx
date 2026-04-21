@@ -1,9 +1,9 @@
 import { Link, useLocation } from "wouter";
-import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid } from "lucide-react";
+import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { CATEGORIES } from "@shared/constants";
-import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Navbar() {
   const [location, navigate] = useLocation();
@@ -30,15 +30,9 @@ export default function Navbar() {
     navigate(qs ? `/?${qs}` : "/");
   };
 
-  const { data: user, isLoading } = useQuery<{ id: string, username: string, role: string }>({ 
-    queryKey: ["/api/me"],
-    retry: false
-  });
+  const { user, isLoading, logoutMutation } = useAuth();
 
-  const handleLogout = async () => {
-    await fetch("/api/logout", { method: "POST" });
-    window.location.reload();
-  };
+  const handleLogout = () => logoutMutation.mutate();
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/20 backdrop-blur-lg border-b border-white/[0.03]">
@@ -115,11 +109,19 @@ export default function Navbar() {
 
             {!isLoading && user ? (
               <div className="flex items-center gap-3">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{user.username}</span>
+                <Link href={`/profile/${user.username}`}>
+                  <div className="flex items-center gap-2 cursor-pointer group">
+                    <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center group-hover:border-primary/60 transition-colors">
+                      <User className="w-3.5 h-3.5 text-primary" />
+                    </div>
+                    <span className="text-[10px] font-bold text-muted-foreground group-hover:text-primary uppercase tracking-widest transition-colors">{user.username}</span>
+                  </div>
+                </Link>
                 <Button 
                   variant="ghost" 
                   size="sm" 
                   onClick={handleLogout}
+                  disabled={logoutMutation.isPending}
                   className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest"
                 >
                   Logout
@@ -173,7 +175,12 @@ export default function Navbar() {
           {!user ? (
             <Link href="/auth"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">Sign In</div></Link>
           ) : (
-            <div onClick={handleLogout} className="py-3 text-xs font-bold text-red-500 uppercase tracking-widest text-center cursor-pointer">Logout ({user.username})</div>
+            <div className="flex flex-col gap-2">
+              <Link href={`/profile/${user.username}`}>
+                <div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-primary uppercase tracking-widest text-center">My Profile ({user.username})</div>
+              </Link>
+              <div onClick={handleLogout} className="py-3 text-xs font-bold text-red-500 uppercase tracking-widest text-center cursor-pointer">Logout</div>
+            </div>
           )}
         </div>
       )}

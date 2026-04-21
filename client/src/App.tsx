@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { LoadingFallback } from "@/components/LoadingFallback";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AuthProvider } from "@/hooks/use-auth";
 import Navbar from "./components/Navbar";
 import NotFound from "./pages/not-found";
 
@@ -17,6 +18,7 @@ const UploadPage = lazy(() => import("./components/private/UploadPage"));
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
 const CategoriesPage = lazy(() => import("./components/public/CategoriesPage"));
 const AuthPage = lazy(() => import("./components/public/AuthPage"));
+const ProfilePage = lazy(() => import("./components/public/ProfilePage"));
 
 // --- Auto add Headers for CSRF Protection ------------
 if (typeof window !== 'undefined') {
@@ -36,23 +38,29 @@ function App() {
     <ThemeProvider defaultTheme="dark" storageKey="video-portal-theme">
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30 selection:text-cyan-400">
-            <Navbar />
-            <Suspense fallback={<LoadingFallback />}>
-              <Switch>
-                <Route path="/" component={VideoLibrary} />
-                <Route path="/watch/:hash" component={WatchVideo} />
-                <Route path="/upload" component={UploadPage} />
-                <Route path="/admin" component={AdminDashboard} />
-                <Route path="/categories" component={CategoriesPage} />
-                <Route path="/auth" component={AuthPage} />
-                
-                {/* Fallback route for 404 */}
-                <Route component={NotFound} />
-              </Switch>
-            </Suspense>
-            <Toaster />
-          </div>
+          <AuthProvider>
+            <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30 selection:text-cyan-400">
+              <Navbar />
+              <Suspense fallback={<LoadingFallback />}>
+                <Switch>
+                  <Route path="/" component={VideoLibrary} />
+                  <Route path="/watch/:hash" component={WatchVideo} />
+                  <Route path="/upload" component={UploadPage} />
+                  <Route path="/admin">
+                    <ProtectedRoute>
+                      <AdminDashboard />
+                    </ProtectedRoute>
+                  </Route>
+                  <Route path="/categories" component={CategoriesPage} />
+                  <Route path="/auth" component={AuthPage} />
+                  <Route path="/profile/:username" component={ProfilePage} />
+                  {/* Fallback route for 404 */}
+                  <Route component={NotFound} />
+                </Switch>
+              </Suspense>
+              <Toaster />
+            </div>
+          </AuthProvider>
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

@@ -1,21 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trash2, Video as VideoIcon, ExternalLink, BarChart3, Users, Settings, Edit3, CheckSquare, Square, X, Search, ChevronLeft, ChevronRight, Play } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Trash2, Video as VideoIcon, ExternalLink, BarChart3, Users, Edit3,
+  CheckSquare, X, Search, ChevronLeft, ChevronRight, Play, ShieldCheck,
+  Eye, Heart, ChevronDown
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import axios from "axios";
 import { useState, useEffect } from "react";
-
-// Set CSRF header and credentials for all axios requests in this component
-axios.defaults.headers.common['X-Requested-With'] = 'VideoPortal-App';
-axios.defaults.withCredentials = true;
+import { useAuth } from "@/hooks/use-auth";
+import { Link } from "wouter";
 
 interface Video {
   id: string;
@@ -23,383 +23,539 @@ interface Video {
   hash: string;
   thumbnailHash?: string;
   views: number;
+  likes: number;
   category: string;
   uploadedAt: string;
 }
 
+interface UserData {
+  id: string;
+  username: string;
+  role: string;
+  bio?: string;
+  createdAt: string;
+}
+
+type Tab = "videos" | "users";
+
 export default function AdminDashboard() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const [tab, setTab] = useState<Tab>("videos");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isBulkEditDialogOpen, setIsBulkEditDialogOpen] = useState(false);
   const [titlePattern, setTitlePattern] = useState("");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [previewVideoHash, setPreviewVideoHash] = useState<string | null>(null);
-  const limit = 10;
+  const [previewHash, setPreviewHash] = useState<string | null>(null);
+  const limit = 15;
 
-  // Fetch individual video details for playback
-  const { data: previewVideo, isLoading: isPreviewLoading } = useQuery<{ playbackUrl: string, title: string }>({
-    queryKey: [`/api/videos/${previewVideoHash}`],
-    enabled: !!previewVideoHash,
-  });
+  // Reset page on search
+  useEffect(() => { setPage(1); }, [search]);
 
+  // ── Video list ──
   const { data: response, isLoading } = useQuery<{ videos: Video[], total: number }>({
     queryKey: ["/api/videos", "admin", page, search],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: limit.toString(),
-      });
+      const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
       if (search) params.set("q", search);
-      const res = await fetch(`/api/videos?${params.toString()}`);
+      const res = await fetch(`/api/videos?${params}`);
       return res.json();
     }
   });
 
   const videos = response?.videos || [];
   const total = response?.total || 0;
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  // Reset to page 1 on search
-  useEffect(() => {
-    setPage(1);
-  }, [search]);
+  // ── Preview playback ──
+  const { data: previewPlayback, isLoading: previewLoading } = useQuery<{ playbackUrl: string }>({
+    queryKey: [`/api/videos/${previewHash}/playback`],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos/${previewHash}/playback`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!previewHash,
+  });
 
+  const previewTitle = videos.find(v => v.hash === previewHash)?.title;
+
+  // ── Delete ──
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await axios.delete(`/api/videos/${id}`);
+      const res = await fetch(`/api/videos/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
     },
     onSuccess: () => {
       toast({ title: "Video deleted" });
-      setSelectedIds(prev => prev.filter(sid => sid !== selectedIds[0]));
+      setSelectedIds([]);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
     },
-    onError: () => {
-      toast({ title: "Delete failed", variant: "destructive" });
-    },
+    onError: () => toast({ title: "Delete failed", variant: "destructive" }),
   });
 
+  // ── Bulk rename ──
   const bulkUpdateMutation = useMutation({
     mutationFn: async (data: { ids: string[], titlePattern: string }) => {
-      await axios.patch("/api/videos/bulk", data);
+      const res = await fetch("/api/videos/bulk", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Bulk update failed");
     },
     onSuccess: () => {
-      toast({ title: "Bulk update successful" });
+      toast({ title: "Bulk rename applied" });
       setIsBulkEditDialogOpen(false);
       setSelectedIds([]);
       setTitlePattern("");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
     },
-    onError: () => {
-      toast({ title: "Bulk update failed", variant: "destructive" });
-    },
+    onError: () => toast({ title: "Bulk update failed", variant: "destructive" }),
   });
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => 
-      prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
-    );
-  };
+  // ── User Management ──
+  const { data: users, isLoading: usersLoading } = useQuery<UserData[]>({
+    queryKey: ["/api/admin/users"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/users");
+      if (!res.ok) throw new Error("Failed to fetch users");
+      return res.json();
+    },
+    enabled: tab === "users",
+  });
+  useEffect(() => {
+    if (users) console.log("[ADMIN] Users data:", users);
+  }, [users]);
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === videos.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(videos.map(v => v.id));
-    }
-  };
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string, updates: Partial<UserData> }) => {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "User updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: () => toast({ title: "Update failed", variant: "destructive" }),
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+    },
+    onSuccess: () => {
+      toast({ title: "User deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: () => toast({ title: "Delete failed", variant: "destructive" }),
+  });
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
+
+  const toggleSelectAll = () =>
+    setSelectedIds(selectedIds.length === videos.length ? [] : videos.map(v => v.id));
+
+  const totalViews = videos.reduce((acc, v) => acc + v.views, 0);
 
   return (
-    <div className="min-h-screen pt-24 pb-12 px-4 sm:px-8">
-      <div className="max-w-[1400px] mx-auto space-y-12">
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-          <div>
-            <h1 className="text-4xl sm:text-6xl font-black font-display tracking-tight text-white mb-2">CONTROL <span className="text-cyan-400">CENTER</span></h1>
-            <p className="text-gray-500 font-semibold tracking-widest uppercase text-xs">Managing distributed content nodes</p>
-          </div>
-          <div className="flex gap-4">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-cyan-400 transition-colors" />
-              <Input 
-                placeholder="Quick search..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="bg-white/5 border-white/10 rounded-xl pl-11 pr-4 h-12 w-64 text-white placeholder:text-gray-600 focus:border-cyan-500/50 transition-all"
-              />
-            </div>
-            <Button className="glass bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border-cyan-500/20 font-bold px-6 h-12 rounded-xl">
-              <Settings className="w-4 h-4 mr-2" /> SYSTEM CONFIG
-            </Button>
-          </div>
-        </header>
+    <div className="min-h-screen bg-background pt-24 pb-16 px-4 sm:px-8">
+      <div className="max-w-[1400px] mx-auto space-y-8">
 
-        {/* Bulk Actions Bar */}
+        {/* ─── Header ─── */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-8 h-8 bg-primary/20 rounded-lg flex items-center justify-center">
+                <ShieldCheck className="w-4 h-4 text-primary" />
+              </div>
+              <span className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Admin Panel</span>
+            </div>
+            <h1 className="text-4xl font-black text-foreground tracking-tight">
+              Control <span className="text-primary">Center</span>
+            </h1>
+            <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest mt-1">
+              Signed in as {user?.username}
+            </p>
+          </div>
+
+          <div className="relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            <Input
+              placeholder="Search videos..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="bg-white/5 border-white/10 rounded-xl pl-11 pr-4 h-12 w-72 text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 transition-all"
+            />
+          </div>
+        </div>
+
+        {/* ─── Stats ─── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          {[
+            { label: "Total Videos", value: total.toLocaleString(), icon: VideoIcon },
+            { label: "Network Views", value: totalViews.toLocaleString(), icon: Eye },
+            { label: "Page Views", value: `${page} / ${totalPages}`, icon: BarChart3 },
+          ].map(({ label, value, icon: Icon }) => (
+            <div key={label} className="bg-white/[0.03] border border-white/5 rounded-2xl p-6 flex items-center gap-5">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Icon className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</p>
+                <p className="text-2xl font-black text-foreground">{value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ─── Tabs ─── */}
+        <div className="flex gap-1 p-1 bg-white/5 rounded-xl w-fit border border-white/5">
+          {(["videos", "users"] as Tab[]).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                tab === t
+                  ? "bg-primary text-primary-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* ─── Bulk Actions Bar ─── */}
         <AnimatePresence>
           {selectedIds.length > 0 && (
-            <motion.div 
-              initial={{ opacity: 0, y: -20 }}
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="glass border-cyan-500/30 p-6 rounded-2xl flex items-center justify-between sticky top-24 z-40 shadow-2xl shadow-cyan-500/10"
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-primary/10 border border-primary/20 rounded-2xl p-5 flex items-center justify-between sticky top-24 z-40 shadow-lg shadow-primary/5"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center text-white">
-                  <CheckSquare className="w-6 h-6" />
+                <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center">
+                  <CheckSquare className="w-5 h-5 text-primary-foreground" />
                 </div>
                 <div>
-                  <div className="text-white font-bold">{selectedIds.length} items selected</div>
-                  <div className="text-gray-500 text-[10px] font-bold uppercase tracking-widest">Ready for batch operations</div>
+                  <p className="text-foreground font-bold text-sm">{selectedIds.length} videos selected</p>
+                  <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Ready for batch operations</p>
                 </div>
               </div>
-              <div className="flex gap-3">
-                <Dialog open={isBulkEditDialogOpen} onOpenChange={setIsBulkEditDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold rounded-xl px-6">
-                      <Edit3 className="w-4 h-4 mr-2" /> RENAME SERIES
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="glass border-white/10 bg-gray-900/95 backdrop-blur-2xl text-white">
-                    <DialogHeader>
-                      <DialogTitle className="text-2xl font-black font-display">BULK <span className="text-cyan-400">RENAME</span></DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-6 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="pattern" className="text-xs font-bold uppercase tracking-widest text-gray-400">Title Pattern</Label>
-                        <Input 
-                          id="pattern"
-                          placeholder="Example: Wildlife Documentary Part {n}"
-                          value={titlePattern}
-                          onChange={(e) => setTitlePattern(e.target.value)}
-                          className="bg-white/5 border-white/10 rounded-xl h-12 text-white placeholder:text-gray-600"
-                        />
-                        <p className="text-[10px] text-gray-500 font-medium">Use <span className="text-cyan-400 font-bold">{'{n}'}</span> to automatically insert an incrementing number.</p>
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button 
-                        variant="ghost" 
-                        onClick={() => setIsBulkEditDialogOpen(false)}
-                        className="text-gray-400 font-bold"
-                      >
-                        CANCEL
-                      </Button>
-                      <Button 
-                        onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, titlePattern })}
-                        disabled={!titlePattern.trim()}
-                        className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold rounded-xl px-8"
-                      >
-                        APPLY TO {selectedIds.length} VIDEOS
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-                <Button 
-                  variant="ghost" 
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setIsBulkEditDialogOpen(true)}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-5 h-9 text-xs uppercase tracking-widest"
+                >
+                  <Edit3 className="w-3.5 h-3.5 mr-1.5" /> Bulk Rename
+                </Button>
+                <Button
+                  variant="ghost"
                   size="icon"
                   onClick={() => setSelectedIds([])}
-                  className="w-10 h-10 rounded-xl text-gray-400 hover:text-white hover:bg-white/10"
+                  className="w-9 h-9 rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/10"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="glass-card p-8 rounded-3xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <VideoIcon className="w-20 h-20 text-white" />
+        {/* ─── Video Table ─── */}
+        {tab === "videos" && (
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+              <h2 className="text-sm font-black uppercase tracking-widest text-foreground">Content Management</h2>
+              <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                <span>Select All</span>
+                <Checkbox
+                  checked={selectedIds.length === videos.length && videos.length > 0}
+                  onCheckedChange={toggleSelectAll}
+                  className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                />
+              </div>
             </div>
-            <div className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Library Reach</div>
-            <div className="text-5xl font-black font-display text-white">{total.toLocaleString()}</div>
-          </div>
-          
-          <div className="glass-card p-8 rounded-3xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <BarChart3 className="w-20 h-20 text-white" />
-            </div>
-            <div className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Network Views</div>
-            <div className="text-5xl font-black font-display text-white">
-              {videos?.reduce((acc, v) => acc + v.views, 0).toLocaleString() || 0}
-            </div>
-          </div>
 
-          <div className="glass-card p-8 rounded-3xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <Users className="w-20 h-20 text-white" />
-            </div>
-            <div className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Active Sessions</div>
-            <div className="text-5xl font-black font-display text-white">1</div>
-          </div>
-        </div>
-
-        {/* Video Table */}
-        <div className="glass rounded-3xl overflow-hidden border-white/5">
-          <div className="p-8 border-b border-white/5 flex justify-between items-center">
-            <h2 className="text-2xl font-black font-display">CONTENT <span className="text-cyan-400">MANAGEMENT</span></h2>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Select All</span>
-              <Checkbox 
-                checked={selectedIds.length === videos.length && videos.length > 0}
-                onCheckedChange={toggleSelectAll}
-                className="border-white/20 data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500"
-              />
-            </div>
-          </div>
-          <Table>
-            <TableHeader className="bg-white/5">
-              <TableRow className="border-white/5 hover:bg-transparent">
-                <TableHead className="w-[50px] px-8 py-4"></TableHead>
-                <TableHead className="text-gray-400 px-8 py-4 font-bold uppercase tracking-widest text-[10px]">Preview</TableHead>
-                <TableHead className="text-gray-400 px-8 py-4 font-bold uppercase tracking-widest text-[10px]">Title & Hash</TableHead>
-                <TableHead className="text-gray-400 px-8 py-4 font-bold uppercase tracking-widest text-[10px]">Category</TableHead>
-                <TableHead className="text-gray-400 px-8 py-4 font-bold uppercase tracking-widest text-[10px]">Views</TableHead>
-                <TableHead className="text-gray-400 px-8 py-4 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                [...Array(limit)].map((_, i) => (
-                  <TableRow key={i} className="border-white/5">
-                    <TableCell className="px-8 py-6"><Skeleton className="w-4 h-4 rounded" /></TableCell>
-                    <TableCell className="px-8 py-6"><Skeleton className="w-48 h-28 rounded-2xl" /></TableCell>
-                    <TableCell className="px-8 py-6"><Skeleton className="h-4 w-48" /></TableCell>
-                    <TableCell className="px-8 py-6"><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell className="px-8 py-6"><Skeleton className="h-4 w-12" /></TableCell>
-                    <TableCell className="px-8 py-6 text-right"><Skeleton className="h-8 w-24 ml-auto" /></TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                videos.map((video) => (
-                  <TableRow key={video.id} className={`border-white/5 transition-colors ${selectedIds.includes(video.id) ? 'bg-cyan-500/5 hover:bg-cyan-500/10' : 'hover:bg-white/5'}`}>
-                    <TableCell className="px-8 py-6">
-                      <Checkbox 
-                        checked={selectedIds.includes(video.id)}
-                        onCheckedChange={() => toggleSelect(video.id)}
-                        className="border-white/20 data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500"
-                      />
-                    </TableCell>
-                    <TableCell className="px-8 py-6">
-                      <div 
-                        className="w-48 h-28 rounded-2xl overflow-hidden bg-white/5 border border-white/5 group-hover:border-cyan-500/30 transition-all duration-300 shadow-2xl cursor-pointer group/thumb relative"
-                        onClick={() => setPreviewVideoHash(video.hash)}
-                      >
-                        <img 
-                          src={video.thumbnailHash || "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=400&auto=format&fit=crop"} 
-                          alt="" 
-                          className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=400&auto=format&fit=crop";
-                          }}
+            <Table>
+              <TableHeader className="bg-white/[0.02]">
+                <TableRow className="border-white/5 hover:bg-transparent">
+                  <TableHead className="w-12 px-6" />
+                  <TableHead className="text-muted-foreground px-4 py-3 font-bold uppercase tracking-widest text-[10px]">Thumbnail</TableHead>
+                  <TableHead className="text-muted-foreground px-4 py-3 font-bold uppercase tracking-widest text-[10px]">Title</TableHead>
+                  <TableHead className="text-muted-foreground px-4 py-3 font-bold uppercase tracking-widest text-[10px]">Category</TableHead>
+                  <TableHead className="text-muted-foreground px-4 py-3 font-bold uppercase tracking-widest text-[10px]">Views</TableHead>
+                  <TableHead className="text-muted-foreground px-4 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading
+                  ? [...Array(5)].map((_, i) => (
+                    <TableRow key={i} className="border-white/5">
+                      <TableCell className="px-6 py-4"><Skeleton className="w-4 h-4 rounded bg-white/5" /></TableCell>
+                      <TableCell className="px-4 py-4"><Skeleton className="w-32 h-20 rounded-xl bg-white/5" /></TableCell>
+                      <TableCell className="px-4 py-4"><Skeleton className="h-4 w-48 bg-white/5" /></TableCell>
+                      <TableCell className="px-4 py-4"><Skeleton className="h-4 w-16 bg-white/5" /></TableCell>
+                      <TableCell className="px-4 py-4"><Skeleton className="h-4 w-10 bg-white/5" /></TableCell>
+                      <TableCell className="px-4 py-4 text-right"><Skeleton className="h-8 w-20 ml-auto bg-white/5" /></TableCell>
+                    </TableRow>
+                  ))
+                  : videos.map((video) => (
+                    <TableRow
+                      key={video.id}
+                      className={`border-white/5 transition-colors ${selectedIds.includes(video.id) ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-white/[0.02]"}`}
+                    >
+                      <TableCell className="px-6 py-4">
+                        <Checkbox
+                          checked={selectedIds.includes(video.id)}
+                          onCheckedChange={() => toggleSelect(video.id)}
+                          className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                         />
-                        <div className="absolute inset-0 bg-cyan-500/20 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center">
-                          <Play className="w-10 h-10 text-white fill-white" />
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <div
+                          className="w-32 h-20 rounded-xl overflow-hidden bg-black border border-white/5 cursor-pointer relative group/thumb"
+                          onClick={() => setPreviewHash(video.hash)}
+                        >
+                          <img
+                            src={video.thumbnailHash || "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=400&auto=format&fit=crop"}
+                            alt=""
+                            className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-500"
+                            onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=400&auto=format&fit=crop"; }}
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center">
+                            <Play className="w-7 h-7 text-white fill-white" />
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-8 py-6 font-medium">
-                      <div className="flex flex-col">
-                        <span className="text-white font-bold text-sm line-clamp-1">{video.title}</span>
-                        <span className="text-[10px] font-mono text-gray-500 tracking-tighter">{video.hash}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-8 py-6">
-                      <span className="px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-[10px] font-black uppercase tracking-widest">
-                        {video.category}
-                      </span>
-                    </TableCell>
-                    <TableCell className="px-8 py-6">
-                      <span className="text-white font-bold text-sm">{video.views.toLocaleString()}</span>
-                    </TableCell>
-                    <TableCell className="px-8 py-6 text-right space-x-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="w-10 h-10 rounded-xl text-gray-400 hover:text-white hover:bg-white/10"
-                        onClick={() => window.open(`/watch/${video.hash}`, '_blank')}
-                      >
-                        <ExternalLink className="w-5 h-5" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="w-10 h-10 rounded-xl text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                        onClick={() => {
-                          if (confirm("Permanently delete this entry?")) deleteMutation.mutate(video.id);
-                        }}
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <div className="space-y-1">
+                          <Link href={`/watch/${video.hash}`}>
+                            <p className="text-foreground font-bold text-sm line-clamp-1 hover:text-primary transition-colors cursor-pointer">{video.title}</p>
+                          </Link>
+                          <p className="text-[10px] font-mono text-muted-foreground/60 tracking-tighter">{video.hash.slice(0, 24)}...</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest">{video.category}</span>
+                      </TableCell>
+                      <TableCell className="px-4 py-4">
+                        <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                          <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                          {video.views.toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-4 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost" size="icon"
+                            className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/10"
+                            onClick={() => window.open(`/watch/${video.hash}`, "_blank")}
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="w-8 h-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => { if (confirm("Delete this video?")) deleteMutation.mutate(video.id); }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                }
+              </TableBody>
+            </Table>
 
-          {/* Pagination */}
-          <div className="p-8 border-t border-white/5 flex items-center justify-between">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-              Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} items
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={page === 1}
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                className="w-10 h-10 rounded-xl text-gray-400 border border-white/5 hover:bg-white/5 disabled:opacity-20"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </Button>
-              <div className="px-4 text-white font-black text-sm">{page} / {totalPages}</div>
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={page === totalPages}
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                className="w-10 h-10 rounded-xl text-gray-400 border border-white/5 hover:bg-white/5 disabled:opacity-20"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </Button>
+            {/* Pagination */}
+            <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                {total > 0 ? `Showing ${(page - 1) * limit + 1}–${Math.min(page * limit, total)} of ${total}` : "No results"}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" disabled={page === 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  className="w-8 h-8 rounded-lg border border-white/5 hover:bg-white/5 disabled:opacity-20"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm font-black text-foreground px-2">{page} / {totalPages}</span>
+                <Button variant="ghost" size="icon" disabled={page >= totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  className="w-8 h-8 rounded-lg border border-white/5 hover:bg-white/5 disabled:opacity-20"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* ─── Users Tab ─── */}
+        {tab === "users" && (
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5">
+              <h2 className="text-sm font-black uppercase tracking-widest text-foreground">User Management</h2>
+            </div>
+
+            <Table>
+              <TableHeader className="bg-white/[0.02]">
+                <TableRow className="border-white/5 hover:bg-transparent">
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Username</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Role</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Joined Date</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {usersLoading ? (
+                  [...Array(5)].map((_, i) => (
+                    <TableRow key={i} className="border-white/5">
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-32 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-16 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-24 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4 text-right"><Skeleton className="h-8 w-24 ml-auto bg-white/5" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : users && users.length > 0 ? (
+                  users.map((u) => (
+                    <TableRow key={u.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="px-6 py-4 font-bold text-foreground">
+                        <Link href={`/profile/${u.username}`}>
+                          <span className="hover:text-primary cursor-pointer transition-colors">{u.username}</span>
+                        </Link>
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                          u.role === "admin" ? "bg-primary/10 text-primary" : "bg-white/5 text-muted-foreground"
+                        }`}>
+                          {u.role}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-6 py-4 text-xs text-muted-foreground">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "N/A"}
+                      </TableCell>
+                      <TableCell className="px-6 py-4 text-right space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={u.username === user?.username}
+                          className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 disabled:opacity-0"
+                          onClick={() => updateUserMutation.mutate({ 
+                            id: u.id, 
+                            updates: { role: u.role === "admin" ? "user" : "admin" } 
+                          })}
+                        >
+                          {u.role === "admin" ? "Demote" : "Make Admin"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={u.username === user?.username}
+                          className="w-8 h-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 disabled:opacity-0"
+                          onClick={() => { if (confirm(`Delete user ${u.username}?`)) deleteUserMutation.mutate(u.id); }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-32 text-center">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <Users className="w-8 h-8 opacity-20" />
+                        <p className="text-xs font-bold uppercase tracking-widest">No users found</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
       </div>
 
-      {/* Video Preview Dialog */}
-      <Dialog open={!!previewVideoHash} onOpenChange={(open) => !open && setPreviewVideoHash(null)}>
-        <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black border-white/10">
-          <DialogHeader className="p-4 bg-white/5 border-b border-white/5">
-            <DialogTitle className="text-sm font-bold text-white truncate pr-8">
-              {isPreviewLoading ? "Loading Source..." : previewVideo?.title}
+      {/* ─── Preview Dialog ─── */}
+      <Dialog open={!!previewHash} onOpenChange={(open) => !open && setPreviewHash(null)}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-white/10">
+          <DialogHeader className="p-4 border-b border-white/5 bg-white/[0.03]">
+            <DialogTitle className="text-sm font-bold text-foreground truncate pr-8">
+              {previewTitle || "Loading..."}
             </DialogTitle>
           </DialogHeader>
           <div className="aspect-video bg-black flex items-center justify-center">
-            {isPreviewLoading ? (
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin" />
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Resolving Playback Node...</span>
+            {previewLoading ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Preparing stream...</span>
               </div>
-            ) : previewVideo?.playbackUrl ? (
-              <video 
-                src={previewVideo.playbackUrl} 
-                controls 
-                autoPlay 
-                preload="metadata"
+            ) : previewPlayback?.playbackUrl ? (
+              <video
+                src={previewPlayback.playbackUrl}
+                controls autoPlay preload="metadata"
                 className="w-full h-full object-contain"
                 controlsList="nodownload"
               />
             ) : (
               <div className="text-center">
-                <X className="w-12 h-12 text-red-500 mx-auto mb-4 opacity-20" />
-                <p className="text-sm font-bold text-gray-500">Failed to load video stream</p>
+                <X className="w-10 h-10 text-destructive mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-bold text-muted-foreground">Failed to load stream</p>
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Bulk Rename Dialog ─── */}
+      <Dialog open={isBulkEditDialogOpen} onOpenChange={setIsBulkEditDialogOpen}>
+        <DialogContent className="bg-background/95 backdrop-blur-2xl border-white/10 text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black">
+              Bulk <span className="text-primary">Rename</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Title Pattern</Label>
+              <Input
+                placeholder="e.g. Wildlife Documentary Part {n}"
+                value={titlePattern}
+                onChange={(e) => setTitlePattern(e.target.value)}
+                className="bg-white/5 border-white/10 rounded-xl h-12 text-foreground placeholder:text-muted-foreground/30"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Use <span className="text-primary font-bold">{"{n}"}</span> to insert an auto-incrementing number.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsBulkEditDialogOpen(false)} className="text-muted-foreground font-bold">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, titlePattern })}
+              disabled={!titlePattern.trim() || bulkUpdateMutation.isPending}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-6 uppercase tracking-widest text-xs"
+            >
+              Apply to {selectedIds.length} Videos
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -1,72 +1,59 @@
 // src/components/ProtectedRoute.tsx
 import { useLocation } from "wouter";
-import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
-import NotFound from "@/pages/not-found";
-import { SessionTimer } from "./SessionTimer";
+import { useEffect } from "react";
+import { Loader2, ShieldAlert } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
 
 export const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
-  const [location, setLocation] = useLocation();
-  const [token, setToken] = useState(localStorage.getItem("adminToken") || "");
-  const [isVerified, setIsVerified] = useState<boolean | null>(null);
+  const [, setLocation] = useLocation();
+  const { user, isLoading } = useAuth();
 
   useEffect(() => {
-    if (!token) {
-      setIsVerified(false);
-
-      // 🔑 Redirect ONLY if trying to access an /admin route
-      if (location.startsWith("/admin")) {
-        setLocation("/admin");
-      }
-      return;
+    // If done loading and no user at all, redirect to auth
+    if (!isLoading && !user) {
+      setLocation("/auth");
     }
+  }, [user, isLoading, setLocation]);
 
-    fetch("/api/admin/verify", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) {
-          setToken("");
-          localStorage.removeItem("adminToken");
-          setIsVerified(false);
-
-          if (location.startsWith("/admin")) {
-            setLocation("/admin");
-          }
-        } else {
-          setIsVerified(true);
-        }
-      })
-      .catch(() => {
-        setToken("");
-        localStorage.removeItem("adminToken");
-        setIsVerified(false);
-
-        if (location.startsWith("/admin")) {
-          setLocation("/admin");
-        }
-      });
-  }, [token, setLocation, location]);
-
-  // While verifying, show spinner
-  if (isVerified === null) {
+  // Loading state
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        <span className="ml-2 text-muted-foreground">Checking authentication...</span>
+      <div className="flex items-center justify-center h-screen bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-3 text-muted-foreground font-bold uppercase tracking-widest text-xs">
+          Verifying session...
+        </span>
       </div>
     );
   }
 
-  // ✅ If not verified:
-  // - For /admin routes, user will already be redirected to /admin by useEffect
-  // - For non-admin routes, show NotFound
-  return isVerified ? (
-    <>
-      <SessionTimer />
-      {children}
-    </>
-  ) : (
-    <NotFound />
-  );
+  // Logged in but not admin
+  if (user && user.role !== "admin") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-6">
+          <div className="w-20 h-20 mx-auto rounded-2xl bg-destructive/10 flex items-center justify-center">
+            <ShieldAlert className="w-10 h-10 text-destructive" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black text-foreground mb-2">Access Denied</h2>
+            <p className="text-muted-foreground text-sm">You don't have permission to view this page.</p>
+          </div>
+          <Link href="/">
+            <Button variant="outline" className="border-white/10 font-bold uppercase tracking-widest text-xs">
+              Go Home
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Not logged in (redirect handled by useEffect above, show nothing while redirecting)
+  if (!user) return null;
+
+  // ✅ Admin verified
+  return children;
 };

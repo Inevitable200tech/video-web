@@ -1,11 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { MessageSquare, Send, User, Trash2, Clock } from "lucide-react";
+import { Link } from "wouter";
+import { MessageSquare, Send, User, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/hooks/use-auth";
 
 interface Comment {
   id: string;
@@ -28,10 +30,7 @@ export default function CommentSection({ videoId }: CommentSectionProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: user } = useQuery<{ id: string, username: string }>({ 
-    queryKey: ["/api/me"],
-    retry: false
-  });
+  const { user } = useAuth();
 
   const { data: comments, isLoading } = useQuery<Comment[]>({
     queryKey: [`/api/videos/${videoId}/comments`],
@@ -130,26 +129,36 @@ export default function CommentSection({ videoId }: CommentSectionProps) {
                 key={comment.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex gap-4 group"
               >
-                <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 group-hover:border-primary/30 transition-colors">
-                  {comment.userId.avatarHash ? (
-                     <img src={`https://www.gravatar.com/avatar/${comment.userId.avatarHash}?d=identicon`} alt={comment.userId.username} className="w-full h-full rounded-full" />
-                  ) : (
-                    <User className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                  )}
-                </div>
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-foreground">{comment.userId.username}</span>
-                    <span className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">
-                      <Clock className="w-3 h-3" />
-                      {formatDistanceToNow(new Date(comment.createdAt))} ago
-                    </span>
+                <div className="flex gap-4 group">
+                  {/* Avatar — links to profile */}
+                  <Link href={`/profile/${comment.userId.username}`}>
+                    <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 group-hover:border-primary/30 hover:border-primary/60 transition-colors cursor-pointer">
+                      {comment.userId.avatarHash ? (
+                        <img src={`https://www.gravatar.com/avatar/${comment.userId.avatarHash}?d=identicon`} alt={comment.userId.username} className="w-full h-full rounded-full" />
+                      ) : (
+                        <User className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                      )}
+                    </div>
+                  </Link>
+
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-3">
+                      {/* Username — links to profile */}
+                      <Link href={`/profile/${comment.userId.username}`}>
+                        <span className="text-sm font-bold text-foreground hover:text-primary transition-colors cursor-pointer">
+                          {comment.userId.username}
+                        </span>
+                      </Link>
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">
+                        <Clock className="w-3 h-3" />
+                        {formatDistanceToNow(new Date(comment.createdAt))} ago
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground text-sm leading-relaxed">
+                      {comment.text}
+                    </p>
                   </div>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    {comment.text}
-                  </p>
                 </div>
               </motion.div>
             ))}
