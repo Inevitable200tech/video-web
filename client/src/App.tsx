@@ -42,7 +42,8 @@ if (typeof window !== 'undefined') {
   };
 }
 
-const PUBLISHABLE_KEY = "pk_test_cm9idXN0LWJhc2lsaXNrLTk4LmNsZXJrLmFjY291bnRzLmRldiQ";
+// const PUBLISHABLE_KEY = "";
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 if (!PUBLISHABLE_KEY) {
   throw new Error("Missing Publishable Key");
