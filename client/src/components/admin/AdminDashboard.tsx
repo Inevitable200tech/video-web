@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Trash2, Video as VideoIcon, ExternalLink, BarChart3, Users, Edit3,
   CheckSquare, X, Search, ChevronLeft, ChevronRight, Play, ShieldCheck,
-  Eye, Heart, ChevronDown
+  Eye, Heart, ChevronDown, Database, Activity, RefreshCcw, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -36,7 +36,17 @@ interface UserData {
   createdAt: string;
 }
 
-type Tab = "videos" | "users";
+interface SourceData {
+  id: string;
+  name: string;
+  url: string;
+  token?: string;
+  isActive: boolean;
+  lastSync?: string;
+  createdAt: string;
+}
+
+type Tab = "videos" | "users" | "sources";
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -50,6 +60,8 @@ export default function AdminDashboard() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [previewHash, setPreviewHash] = useState<string | null>(null);
+  const [isAddSourceOpen, setIsAddSourceOpen] = useState(false);
+  const [newSource, setNewSource] = useState({ name: "", url: "", token: "" });
   const limit = 15;
 
   // Reset page on search
@@ -160,6 +172,69 @@ export default function AdminDashboard() {
     onError: () => toast({ title: "Delete failed", variant: "destructive" }),
   });
 
+  // ── Source Management ──
+  const { data: sources, isLoading: sourcesLoading } = useQuery<SourceData[]>({
+    queryKey: ["/api/admin/sources"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/sources");
+      if (!res.ok) throw new Error("Failed to fetch sources");
+      return res.json();
+    },
+    enabled: tab === "sources",
+  });
+
+  const createSourceMutation = useMutation({
+    mutationFn: async (data: Partial<SourceData>) => {
+      const res = await fetch("/api/admin/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Create failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Source added" });
+      setIsAddSourceOpen(false);
+      setNewSource({ name: "", url: "", token: "" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sources"] });
+    },
+    onError: () => toast({ title: "Failed to add source", variant: "destructive" }),
+  });
+
+  const updateSourceMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string, updates: Partial<SourceData> }) => {
+      const res = await fetch(`/api/admin/sources/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sources"] }),
+  });
+
+  const deleteSourceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/sources/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+    },
+    onSuccess: () => {
+      toast({ title: "Source removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sources"] });
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/sources/sync", { method: "POST" });
+      if (!res.ok) throw new Error("Sync failed");
+    },
+    onSuccess: () => toast({ title: "Sync initiated" }),
+    onError: () => toast({ title: "Sync failed", variant: "destructive" }),
+  });
+
   const toggleSelect = (id: string) =>
     setSelectedIds(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
 
@@ -221,7 +296,7 @@ export default function AdminDashboard() {
 
         {/* ─── Tabs ─── */}
         <div className="flex gap-1 p-1 bg-white/5 rounded-xl w-fit border border-white/5">
-          {(["videos", "users"] as Tab[]).map(t => (
+          {(["videos", "users", "sources"] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -484,6 +559,107 @@ export default function AdminDashboard() {
                     </TableCell>
                   </TableRow>
                 )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {/* ─── Sources Tab ─── */}
+        {tab === "sources" && (
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-black uppercase tracking-widest text-foreground">Video Sources</h2>
+                <p className="text-[10px] text-muted-foreground font-bold mt-1 uppercase tracking-widest">Manage external storage nodes</p>
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={() => syncMutation.mutate()} 
+                  disabled={syncMutation.isPending}
+                  variant="ghost" 
+                  className="gap-2 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest bg-primary/5 hover:bg-primary/10 text-primary"
+                >
+                  <RefreshCcw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                  Sync All
+                </Button>
+                <Button 
+                  onClick={() => setIsAddSourceOpen(true)}
+                  className="gap-2 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest bg-primary text-primary-foreground"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Source
+                </Button>
+              </div>
+            </div>
+
+            <Table>
+              <TableHeader className="bg-white/[0.02]">
+                <TableRow className="border-white/5 hover:bg-transparent">
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Source Name</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">API Endpoint</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Status</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Last Sync</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sourcesLoading ? (
+                  [...Array(3)].map((_, i) => (
+                    <TableRow key={i} className="border-white/5">
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-32 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-48 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-16 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-24 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4 text-right"><Skeleton className="h-8 w-24 ml-auto bg-white/5" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : sources?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-48 text-center">
+                      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                        <Database className="w-12 h-12 opacity-10" />
+                        <p className="text-xs font-bold uppercase tracking-widest">No external sources registered</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : sources?.map((s) => (
+                  <TableRow key={s.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
+                    <TableCell className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${s.isActive ? "bg-primary animate-pulse" : "bg-muted-foreground/30"}`} />
+                        <span className="font-bold text-foreground">{s.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-6 py-4">
+                      <code className="text-[10px] bg-white/5 px-2 py-1 rounded text-muted-foreground">{s.url}</code>
+                    </TableCell>
+                    <TableCell className="px-6 py-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`text-[10px] font-black uppercase tracking-widest h-7 px-3 rounded-full ${
+                          s.isActive ? "bg-primary/10 text-primary" : "bg-white/5 text-muted-foreground"
+                        }`}
+                        onClick={() => updateSourceMutation.mutate({ id: s.id, updates: { isActive: !s.isActive } })}
+                      >
+                        {s.isActive ? "Active" : "Disabled"}
+                      </Button>
+                    </TableCell>
+                    <TableCell className="px-6 py-4 text-xs text-muted-foreground">
+                      {s.lastSync ? new Date(s.lastSync).toLocaleString() : "Never"}
+                    </TableCell>
+                    <TableCell className="px-6 py-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-8 h-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => { if (confirm(`Remove source ${s.name}?`)) deleteSourceMutation.mutate(s.id); }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>

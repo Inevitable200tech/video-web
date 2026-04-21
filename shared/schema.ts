@@ -42,6 +42,7 @@ export interface Video extends Document {
   likes: number;
   duration?: number; // in seconds
   uploadedBy?: mongoose.Types.ObjectId;
+  sourceId?: mongoose.Types.ObjectId;
   uploadedAt: Date;
 }
 
@@ -55,6 +56,7 @@ export const videoSchema = new Schema<Video>({
   likes: { type: Number, default: 0 },
   duration: { type: Number },
   uploadedBy: { type: Schema.Types.ObjectId, ref: "User" },
+  sourceId: { type: Schema.Types.ObjectId, ref: "Source" },
   uploadedAt: { type: Date, default: Date.now },
 });
 
@@ -89,13 +91,43 @@ export const insertCommentSchema = z.object({
   text: z.string().min(1).max(500),
 });
 
+// ---------------- SOURCES MANAGEMENT ----------------
+
+export interface Source extends Document {
+  id: string;
+  name: string;
+  url: string;
+  token?: string;
+  isActive: boolean;
+  lastSync?: Date;
+  createdAt: Date;
+}
+
+export const sourceSchema = new Schema<Source>({
+  name: { type: String, required: true },
+  url: { type: String, required: true, unique: true },
+  token: { type: String },
+  isActive: { type: Boolean, default: true },
+  lastSync: { type: Date },
+  createdAt: { type: Date, default: Date.now },
+});
+
+export const insertSourceSchema = z.object({
+  name: z.string().min(1),
+  url: z.string().url(),
+  token: z.string().optional(),
+  isActive: z.boolean().default(true),
+});
+
 // ---------------- EXPORT MODELS ----------------
 
 export const UserModel = (mongoose.models && mongoose.models.User) || mongoose.model<User>("User", userSchema);
 export const VideoModel = (mongoose.models && mongoose.models.Video) || mongoose.model<Video>("Video", videoSchema);
 export const CommentModel = (mongoose.models && mongoose.models.Comment) || mongoose.model<Comment>("Comment", commentSchema);
+export const SourceModel = (mongoose.models && mongoose.models.Source) || mongoose.model<Source>("Source", sourceSchema);
 
 // Types for insertion
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type InsertComment = z.infer<typeof insertCommentSchema>;
+export type InsertSource = z.infer<typeof insertSourceSchema>;

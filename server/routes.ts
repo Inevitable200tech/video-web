@@ -7,7 +7,10 @@ import {
   insertUserSchema,
   insertCommentSchema,
   VideoModel,
+  SourceModel,
+  CommentModel,
   type Video,
+  insertSourceSchema,
 } from "@shared/schema";
 import { CATEGORIES } from "@shared/constants";
 import { z } from "zod";
@@ -235,11 +238,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ═══════════ VIDEO SYNC LOGIC ═══════════
-  // Decoupled from request path to prevent slow page loads
-  let lastSyncTime = 0;
-  const SYNC_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+  // ═══════════ ADMIN SOURCE MANAGEMENT ═══════════
+  app.get("/api/admin/sources", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const sources = await storage.getSources();
+      res.json(sources);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch sources" });
+    }
+  });
 
+  app.post("/api/admin/sources", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const data = insertSourceSchema.parse(req.body);
+      const source = await storage.createSource(data);
+      res.status(201).json(source);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid source data" });
+    }
+  });
+
+  app.patch("/api/admin/sources/:id", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const { id } = req.params;
+      const source = await storage.updateSource(id, req.body);
+      if (!source) return res.status(404).json({ message: "Source not found" });
+      res.json(source);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update source" });
+    }
+  });
+
+  app.delete("/api/admin/sources/:id", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteSource(id);
+      if (!success) return res.status(404).json({ message: "Source not found" });
+      res.json({ message: "Source deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete source" });
+    }
+  });
+
+  app.post("/api/admin/sources/sync", requireAuth, async (req, res) => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    try {
+      // Trigger sync manually
+      await syncAllSources();
+      res.json({ message: "Synchronization initiated" });
+    } catch (error) {
+      res.status(500).json({ message: "Synchronization failed" });
+    }
+  });
+
+  // ═══════════ VIDEO SYNC LOGIC ═══════════
   const PROMO_REGEX = / -? Desi new videoz hd \/ sd - DropMMS Unblock/gi;
 
   function cleanTitle(title: string): string {
@@ -248,16 +314,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   let initialCleaningDone = false;
+  let isSyncing = false;
 
-  async function syncVideosWithStorage() {
-    if (Date.now() - lastSyncTime < SYNC_COOLDOWN) return;
-    if (!STORAGE_API_URL || !STORAGE_API_TOKEN) return;
-
+  async function syncAllSources() {
+    if (isSyncing) return;
     try {
-      lastSyncTime = Date.now();
-      console.log("[SYNC] Starting background video synchronization...");
+      isSyncing = true;
+      let sources = await storage.getSources(true); // only active
+      
+      // Migration: If no sources exist, create one from env vars
+      if (sources.length === 0 && process.env.STORAGE_API_URL) {
+        console.log("[SYNC] No sources found in DB. Migrating from environment variables...");
+        const defaultSource = await storage.createSource({
+          name: "Default Storage",
+          url: process.env.STORAGE_API_URL,
+          token: process.env.STORAGE_API_TOKEN,
+          isActive: true
+        });
+        sources = [defaultSource];
+      }
 
-      // 0. Clean existing titles in DB (Only once on server startup to avoid overhead)
+      console.log(`[SYNC] Starting sync for ${sources.length} sources...`);
+      
+      for (const source of sources) {
+        await syncVideosFromSource(source);
+      }
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  async function syncVideosFromSource(source: any) {
+    try {
+      console.log(`[SYNC] Syncing from source: ${source.name} (${source.url})`);
+
+      // 0. Clean existing titles in DB (Only once on server startup)
       if (!initialCleaningDone) {
         console.log("[SYNC] Performing initial title cleaning and schema updates...");
         const targetPhrase = "Desi new videoz hd / sd - DropMMS Unblock";
@@ -270,7 +361,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           [{ $set: { title: { $trim: { input: { $replaceOne: { input: "$title", find: targetPhrase, replacement: "" } } } } } }]
         );
         
-        // Initialize likes for old videos
         await VideoModel.updateMany(
           { likes: { $exists: false } },
           { $set: { likes: 0 } }
@@ -278,8 +368,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         initialCleaningDone = true;
       }
 
-      const response = await axiosInstance.get(`${STORAGE_API_URL}/api/public/files`, {
-        headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
+      const response = await axiosInstance.get(`${source.url}/api/public/files`, {
+        headers: source.token ? { "Authorization": `Bearer ${source.token}` } : {},
         timeout: 10000
       });
 
@@ -290,16 +380,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hash: { $in: files.map((f: any) => f.hash) } 
         }).select('hash thumbnailHash');
         
-        const existingMap = new Map(existingVideos.map((v: any) => [v.hash, v]));
+        const existingMap = new Map(existingVideos.map((v: any) => [v.hash, v as any]));
 
         const newVideos = files.filter((f: any) => !existingMap.has(f.hash));
         const videosToUpdate = files.filter((f: any) => {
           const existing = existingMap.get(f.hash);
-          // Update if missing thumbnail OR if title still has promo (though updateMany handles the latter)
           return existing && !existing.thumbnailHash && f.thumbnail_address;
         });
 
-        // 1. Bulk Insert New Videos (with clean titles)
         if (newVideos.length > 0) {
           const videoDocs = newVideos.map((f: any) => ({
             title: cleanTitle(f.title || f.filename),
@@ -307,13 +395,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             hash: f.hash,
             thumbnailHash: f.thumbnail_address,
             category: "Cinema",
+            sourceId: source.id || source._id,
             uploadedAt: f.created_at || new Date()
           }));
           await VideoModel.insertMany(videoDocs);
-          console.log(`[SYNC] Inserted ${newVideos.length} new videos with cleaned titles`);
+          console.log(`[SYNC] Inserted ${newVideos.length} new videos from ${source.name}`);
         }
 
-        // 2. Bulk Update Missing Thumbnails
         if (videosToUpdate.length > 0) {
           const bulkOps = videosToUpdate.map((v: any) => ({
             updateOne: {
@@ -322,19 +410,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }));
           await VideoModel.bulkWrite(bulkOps);
-          console.log(`[SYNC] Updated thumbnails for ${videosToUpdate.length} videos`);
         }
+        
+        // Update lastSync timestamp for the source
+        await storage.updateSource(source.id || source._id, { lastSync: new Date() });
       }
     } catch (err: any) {
-      console.warn("[SYNC ERROR]", err.message);
+      console.warn(`[SYNC ERROR] ${source.name}:`, err.message);
     }
   }
 
   // Video Routes
   app.get("/api/videos", async (req, res) => {
     try {
-      // Fire-and-forget sync in the background
-      syncVideosWithStorage().catch(() => {});
+      // Fire-and-forget sync across all sources
+      syncAllSources().catch(() => {});
 
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
@@ -375,17 +465,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // 2. Fetch signed URL from storage API (using hash)
+      // 2. Resolve source
+      let sourceUrl = STORAGE_API_URL;
+      let sourceToken = STORAGE_API_TOKEN;
+
+      const video = await storage.getVideoByHash(hash);
+      if (video && video.sourceId) {
+        const source = await SourceModel.findById(video.sourceId).lean().exec() as any;
+        if (source && source.isActive) {
+          sourceUrl = source.url;
+          sourceToken = source.token || "";
+        }
+      }
+
+      if (!sourceUrl) {
+        return res.status(503).json({ message: "No active storage source found for this video" });
+      }
+
+      // 3. Fetch signed URL from storage API
       try {
-        console.log(`[STORAGE] Fetching signed URL for hash: ${hash}`);
-        const response = await axiosInstance.get(`${STORAGE_API_URL}/api/public/file/${hash}`, {
-          headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
-          timeout: 10000 // Increased timeout for slow Render nodes
+        console.log(`[STORAGE] Fetching signed URL from ${sourceUrl} for hash: ${hash}`);
+        const response = await axiosInstance.get(`${sourceUrl}/api/public/file/${hash}`, {
+          headers: sourceToken ? { "Authorization": `Bearer ${sourceToken}` } : {},
+          timeout: 10000
         });
         
         if (response.data.success) {
           const playbackUrl = response.data.download.url;
-          const expiresAt = response.data.download.expiresAt;
           
           // Update Cache
           playbackCache.set(hash, { url: playbackUrl, expires: Date.now() + CACHE_TTL });
@@ -393,7 +499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.incrementViews(hash);
           res.json({
             playbackUrl,
-            expiresAt
+            expiresAt: response.data.download.expiresAt
           });
         } else {
           res.status(500).json({ message: "Storage API returned failure", error: response.data.error });
@@ -557,7 +663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // 🚀 Immediate Startup Sync
   // Runs once when the server starts to clean titles and discover new videos
-  syncVideosWithStorage().catch(err => console.error("[STARTUP SYNC ERROR]", err.message));
+  syncAllSources().catch(err => console.error("[STARTUP SYNC ERROR]", err.message));
 
   const httpServer = createServer(app);
   return httpServer;

@@ -9,6 +9,9 @@ import {
   UserModel,
   VideoModel,
   CommentModel,
+  type Source,
+  type InsertSource,
+  SourceModel,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -19,6 +22,12 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | null>;
   deleteUser(id: string): Promise<boolean>;
+
+  // Source operations
+  getSources(activeOnly?: boolean): Promise<Source[]>;
+  createSource(source: InsertSource): Promise<Source>;
+  updateSource(id: string, updates: Partial<Source>): Promise<Source | null>;
+  deleteSource(id: string): Promise<boolean>;
 
   // Video operations
   getVideos(category?: string, skip?: number, limit?: number, q?: string, sortBy?: string): Promise<{ videos: Video[], total: number }>;
@@ -198,6 +207,29 @@ export class MongoStorage implements IStorage {
       text: insertComment.text,
     });
     return comment.toObject() as Comment;
+  }
+
+  // Source operations
+  async getSources(activeOnly: boolean = false): Promise<Source[]> {
+    const query = activeOnly ? { isActive: true } : {};
+    const docs = await SourceModel.find(query).sort({ createdAt: -1 }).lean().exec();
+    return docs.map(doc => ({ ...doc, id: (doc as any)._id.toString() })) as unknown as Source[];
+  }
+
+  async createSource(insertSource: InsertSource): Promise<Source> {
+    const source = await SourceModel.create(insertSource);
+    return { ...source.toObject(), id: source._id.toString() } as unknown as Source;
+  }
+
+  async updateSource(id: string, updates: Partial<Source>): Promise<Source | null> {
+    const doc = await SourceModel.findByIdAndUpdate(id, { $set: updates }, { new: true }).lean().exec();
+    if (!doc) return null;
+    return { ...doc, id: (doc as any)._id.toString() } as unknown as Source;
+  }
+
+  async deleteSource(id: string): Promise<boolean> {
+    const result = await SourceModel.findByIdAndDelete(id).exec();
+    return !!result;
   }
 }
 

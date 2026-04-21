@@ -112,11 +112,6 @@ export default function VideoLibrary() {
               <Play className="w-5 h-5 fill-current" />
             </div>
           </div>
-          <div className="absolute bottom-3 left-3">
-            <Badge className="bg-black/60 backdrop-blur-md border-white/10 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5">
-              {video.category}
-            </Badge>
-          </div>
         </div>
 
         <h3 className="text-lg font-bold text-foreground mb-2 line-clamp-1 group-hover:text-primary transition-colors">
