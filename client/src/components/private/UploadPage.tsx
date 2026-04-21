@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
-import { Upload, X, CheckCircle2, AlertCircle, Loader2, Film, Info, Type } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, Link } from "wouter";
+import { Upload, X, CheckCircle2, AlertCircle, Loader2, Film, Info, Type, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,11 @@ import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
 
 export default function UploadPage() {
+  const { data: user, isLoading: userLoading } = useQuery<{ id: string, username: string }>({ 
+    queryKey: ["/api/me"],
+    retry: false
+  });
+
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -84,6 +89,47 @@ export default function UploadPage() {
       if (!title) setTitle(selectedFile.name.split(".")[0]);
     }
   };
+
+  if (userLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center px-4 pt-20">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 blur-[120px] rounded-full" />
+        </div>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="max-w-md w-full bg-white/[0.03] backdrop-blur-2xl border border-white/10 rounded-3xl p-10 text-center shadow-2xl relative overflow-hidden"
+        >
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
+          <div className="w-20 h-20 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-primary/20">
+            <Lock className="w-10 h-10 text-primary" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-4 uppercase tracking-tight">Access Restricted</h2>
+          <p className="text-muted-foreground font-medium mb-8">
+            You must be a registered member of the network to upload cinematic content. 
+            Join our global community to start contributing.
+          </p>
+          <div className="flex flex-col gap-3">
+            <Button asChild className="h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold uppercase tracking-widest">
+              <Link href="/auth">Sign In / Register</Link>
+            </Button>
+            <Button variant="ghost" asChild className="h-12 rounded-xl text-muted-foreground hover:text-white uppercase tracking-widest text-[10px] font-bold">
+              <Link href="/">Return to Library</Link>
+            </Button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pt-24 pb-12 px-4 sm:px-8 flex items-center justify-center">

@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import CommentSection from "./CommentSection";
 
 interface Video {
   id: string;
@@ -20,9 +21,9 @@ interface Video {
   uploadedAt: string;
 }
 
-interface VideoDetails extends Video {
+interface PlaybackData {
   playbackUrl: string;
-  expiresAt: string;
+  expiresAt: number;
 }
 
 interface VideoResponse {
@@ -37,10 +38,32 @@ export default function WatchVideo() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: video, isLoading, error } = useQuery<VideoDetails>({
+  const { data: video, isLoading: metadataLoading, error: metadataError } = useQuery<Video>({
     queryKey: [`/api/videos/${hash}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos/${hash}`);
+      if (!res.ok) throw new Error("Video not found");
+      return res.json();
+    },
     enabled: !!hash,
   });
+
+  const playbackQuery = useQuery<PlaybackData>({
+    queryKey: [`/api/videos/${hash}/playback`],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos/${hash}/playback`);
+      if (!res.ok) throw new Error("Failed to fetch playback URL");
+      return (await res.json()) as PlaybackData;
+    },
+    enabled: !!hash, // Changed from: !!hash && !metadataLoading && !metadataError
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const playbackData = playbackQuery.data;
+  const playbackLoading = playbackQuery.isLoading;
+
+  const isLoading = metadataLoading;
+  const error = metadataError;
 
   const { data: sidebarResponse } = useQuery<VideoResponse>({
     queryKey: ["/api/videos", "sidebar"],
@@ -72,11 +95,11 @@ export default function WatchVideo() {
 
   // Set video source when playbackUrl arrives
   useEffect(() => {
-    if (!video?.playbackUrl || !videoRef.current) return;
+    if (!playbackData?.playbackUrl || !videoRef.current) return;
     const el = videoRef.current;
-    el.src = video.playbackUrl;
+    el.src = playbackData.playbackUrl;
     el.load();
-  }, [video?.playbackUrl]);
+  }, [playbackData?.playbackUrl]);
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -125,6 +148,14 @@ export default function WatchVideo() {
                 </div>
               ) : (
                 <div className="relative aspect-video">
+                  {playbackLoading && !playbackData?.playbackUrl && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-20 backdrop-blur-sm">
+                      <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4" />
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/50 animate-pulse">
+                        Preparing Stream...
+                      </p>
+                    </div>
+                  )}
                   <video
                     ref={videoRef}
                     className="w-full h-full object-contain bg-black"
@@ -136,7 +167,7 @@ export default function WatchVideo() {
                     onPause={() => setIsPlaying(false)}
                   />
 
-                  {!isPlaying && video?.playbackUrl && (
+                  {!isPlaying && playbackData?.playbackUrl && (
                     <div
                       className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer z-10 transition-opacity duration-300"
                       onClick={handlePlay}
@@ -221,6 +252,8 @@ export default function WatchVideo() {
                     {video?.description || "No description provided for this video."}
                   </p>
                 </div>
+
+                <CommentSection videoId={video!.id} />
               </>
             )}
           </div>

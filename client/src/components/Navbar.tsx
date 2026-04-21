@@ -3,6 +3,7 @@ import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid } from "l
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { CATEGORIES } from "@shared/constants";
+import { useQuery } from "@tanstack/react-query";
 
 export default function Navbar() {
   const [location, navigate] = useLocation();
@@ -27,6 +28,16 @@ export default function Navbar() {
     }
     const qs = params.toString();
     navigate(qs ? `/?${qs}` : "/");
+  };
+
+  const { data: user, isLoading } = useQuery<{ id: string, username: string, role: string }>({ 
+    queryKey: ["/api/me"],
+    retry: false
+  });
+
+  const handleLogout = async () => {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.reload();
   };
 
   return (
@@ -102,11 +113,32 @@ export default function Navbar() {
 
             <div className="h-6 w-[1px] bg-white/10 mx-2" />
 
-            <Link href="/admin">
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest">
-                ADMIN
-              </Button>
-            </Link>
+            {!isLoading && user ? (
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{user.username}</span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleLogout}
+                  className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest"
+                >
+                  Logout
+                </Button>
+                {user.role === "admin" && (
+                  <Link href="/admin">
+                    <Button variant="outline" size="sm" className="border-primary/20 text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest">
+                      Admin Panel
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <Link href="/auth">
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary hover:bg-primary/10 font-bold text-xs uppercase tracking-widest">
+                  Sign In
+                </Button>
+              </Link>
+            )}
           </div>
 
           {/* Mobile Menu Trigger */}
@@ -138,7 +170,11 @@ export default function Navbar() {
             ))}
           </div>
           <Link href="/upload"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center border-t border-white/5 pt-4">Upload Video</div></Link>
-          <Link href="/admin"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">Admin Access</div></Link>
+          {!user ? (
+            <Link href="/auth"><div onClick={() => setIsMenuOpen(false)} className="py-3 text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">Sign In</div></Link>
+          ) : (
+            <div onClick={handleLogout} className="py-3 text-xs font-bold text-red-500 uppercase tracking-widest text-center cursor-pointer">Logout ({user.username})</div>
+          )}
         </div>
       )}
     </nav>

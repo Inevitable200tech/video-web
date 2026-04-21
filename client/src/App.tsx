@@ -16,6 +16,7 @@ const WatchVideo = lazy(() => import("./components/public/WatchVideo"));
 const UploadPage = lazy(() => import("./components/private/UploadPage"));
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
 const CategoriesPage = lazy(() => import("./components/public/CategoriesPage"));
+const AuthPage = lazy(() => import("./components/public/AuthPage"));
 
 // --- Auto add Headers for CSRF Protection ------------
 if (typeof window !== 'undefined') {
@@ -44,6 +45,7 @@ function App() {
                 <Route path="/upload" component={UploadPage} />
                 <Route path="/admin" component={AdminDashboard} />
                 <Route path="/categories" component={CategoriesPage} />
+                <Route path="/auth" component={AuthPage} />
                 
                 {/* Fallback route for 404 */}
                 <Route component={NotFound} />

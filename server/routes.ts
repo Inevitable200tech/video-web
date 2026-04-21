@@ -17,6 +17,16 @@ import FormData from "form-data";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
+import http from "http";
+import https from "https";
+
+// Reusable agents for keep-alive connections to speed up internal API calls
+const httpAgent = new http.Agent({ keepAlive: true });
+const httpsAgent = new https.Agent({ keepAlive: true });
+const axiosInstance = axios.create({
+  httpAgent,
+  httpsAgent,
+});
 
 const rootEnvPath = path.resolve("cert.env");
 const folderEnvPath = path.resolve("cert_env", "cert.env");
@@ -29,15 +39,34 @@ const ADMIN_PASS = process.env.ADMIN_PASS || "password";
 const STORAGE_API_URL = process.env.STORAGE_API_URL || "http://localhost:3000";
 const STORAGE_API_TOKEN = process.env.STORAGE_API_TOKEN || "";
 
+// Simple in-memory cache for playback URLs to speed up loading
+const playbackCache = new Map<string, { url: string; expires: number }>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // Increased file size limit to 2GB to match the frontend and storage requirements
 export const upload = multer({ 
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 * 1024 } 
 });
 
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  // Authentication disabled for development
-  next();
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
+  
+  if (!token) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
+    const user = await storage.getUser(decoded.userId);
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+    (req as any).user = user;
+    next();
+  } catch (err) {
+    res.status(401).json({ message: "Invalid or expired token" });
+  }
 }
 
 const limiter = rateLimit({
@@ -47,20 +76,77 @@ const limiter = rateLimit({
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth Routes
-  app.post("/api/admin/login", (req, res) => {
+  app.post("/api/register", async (req, res) => {
+    try {
+      const data = insertUserSchema.parse(req.body);
+      const existingUser = await storage.getUserByUsername(data.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+
+      // Password hashing would go here in a production app
+      // For this implementation, we'll store it as is or use a simple hash
+      const user = await storage.createUser(data);
+      const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+      
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+
+      res.status(201).json({ user: { id: user._id, username: user.username, role: user.role }, token });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
+    
+    // Check for admin hardcoded credentials first (for legacy compatibility)
     if (username === ADMIN_USER && password === ADMIN_PASS) {
-      const token = jwt.sign({ username, role: "admin" }, JWT_SECRET, { expiresIn: "24h" });
-      res.cookie("adminToken", token, { 
+      // Find or create admin user in DB
+      let admin = await storage.getUserByUsername(ADMIN_USER);
+      if (!admin) {
+        admin = await storage.createUser({ username: ADMIN_USER, password: ADMIN_PASS, role: "admin" });
+      }
+      
+      const token = jwt.sign({ userId: admin._id, role: "admin" }, JWT_SECRET, { expiresIn: "24h" });
+      res.cookie("token", token, { 
         httpOnly: true, 
-        secure: req.app.get("env") === "production", 
+        secure: process.env.NODE_ENV === "production", 
         sameSite: "lax",
         maxAge: 24 * 60 * 60 * 1000
       });
-      res.json({ success: true, token });
+      return res.json({ user: { id: admin._id, username: admin.username, role: admin.role }, token });
+    }
+
+    // Regular user login
+    const user = await storage.getUserByUsername(username);
+    if (user && user.password === password) { // Simple check for now
+      const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+      res.json({ user: { id: user._id, username: user.username, role: user.role }, token });
     } else {
       res.status(401).json({ message: "Invalid credentials" });
     }
+  });
+
+  app.post("/api/logout", (req, res) => {
+    res.clearCookie("token");
+    res.json({ success: true });
+  });
+
+  app.get("/api/me", requireAuth, (req, res) => {
+    const user = (req as any).user;
+    res.json({ id: user._id, username: user.username, role: user.role, bio: user.bio, avatarHash: user.avatarHash });
   });
 
   // ═══════════ VIDEO SYNC LOGIC ═══════════
@@ -106,7 +192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         initialCleaningDone = true;
       }
 
-      const response = await axios.get(`${STORAGE_API_URL}/api/public/files`, {
+      const response = await axiosInstance.get(`${STORAGE_API_URL}/api/public/files`, {
         headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
         timeout: 10000
       });
@@ -181,21 +267,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { hash } = req.params;
       const video = await storage.getVideoByHash(hash);
       if (!video) return res.status(404).json({ message: "Video not found" });
+      
+      // Return metadata ONLY (fast)
+      res.json(video);
+    } catch (error: any) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
 
-      // Fetch signed URL from storage API (using hash)
+  app.get("/api/videos/:hash/playback", async (req, res) => {
+    try {
+      const { hash } = req.params;
+
+      // 1. Check Cache
+      const cached = playbackCache.get(hash);
+      if (cached && cached.expires > Date.now()) {
+        console.log(`[STORAGE] Using cached URL for hash: ${hash}`);
+        return res.json({
+          playbackUrl: cached.url,
+          expiresAt: cached.expires
+        });
+      }
+
+      // 2. Fetch signed URL from storage API (using hash)
       try {
         console.log(`[STORAGE] Fetching signed URL for hash: ${hash}`);
-        const response = await axios.get(`${STORAGE_API_URL}/api/public/file/${hash}`, {
+        const response = await axiosInstance.get(`${STORAGE_API_URL}/api/public/file/${hash}`, {
           headers: { "Authorization": `Bearer ${STORAGE_API_TOKEN}` },
-          timeout: 5000
+          timeout: 10000 // Increased timeout for slow Render nodes
         });
         
         if (response.data.success) {
+          const playbackUrl = response.data.download.url;
+          const expiresAt = response.data.download.expiresAt;
+          
+          // Update Cache
+          playbackCache.set(hash, { url: playbackUrl, expires: Date.now() + CACHE_TTL });
+          
           await storage.incrementViews(hash);
           res.json({
-            ...video,
-            playbackUrl: response.data.download.url,
-            expiresAt: response.data.download.expiresAt
+            playbackUrl,
+            expiresAt
           });
         } else {
           res.status(500).json({ message: "Storage API returned failure", error: response.data.error });
@@ -245,7 +357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[UPLOAD] Forwarding file to storage API: ${STORAGE_API_URL}/api/upload`);
       
-      const storageRes = await axios.post(`${STORAGE_API_URL}/api/upload`, formData, {
+      const storageRes = await axiosInstance.post(`${STORAGE_API_URL}/api/upload`, formData, {
         headers: {
           ...formData.getHeaders(),
           "Authorization": `Bearer ${STORAGE_API_TOKEN}`
@@ -337,9 +449,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/comments", requireAuth, async (req, res) => {
     try {
       const data = insertCommentSchema.parse(req.body);
-      const comment = await storage.createComment(data, (req as any).user.id);
-      res.status(201).json(comment);
+      const user = (req as any).user;
+      const comment = await storage.createComment(data, user._id.toString());
+      
+      // Populate user info for the response
+      const populatedComment = {
+        ...comment,
+        userId: {
+          _id: user._id,
+          username: user.username,
+          avatarHash: user.avatarHash
+        }
+      };
+      
+      res.status(201).json(populatedComment);
     } catch (error: any) {
+      console.error("[COMMENT ERROR]", error.message);
       res.status(400).json({ message: "Invalid comment data" });
     }
   });
