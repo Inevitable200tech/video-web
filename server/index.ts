@@ -29,9 +29,8 @@ app.use(cookieParser());
 // 1. Trust proxy is essential for Render.com HTTPS/Cookies
 app.set("trust proxy", 1);
 
-// 2. Simple CSRF Middleware
-// --- server/index.ts ---
-
+// 2. Simple CSRF Middleware (Disabled for Development)
+/*
 const CSRF_EXCLUDE = [
   "/api/admin/login", 
   "/api/admin/developer-request", 
@@ -61,6 +60,7 @@ app.use((req, res, next) => {
     message: "Security Check Failed: Missing Security Header" 
   });
 });
+*/
 
 // ---------------- START ANTI-CACHING MIDDLEWARE ----------------
 

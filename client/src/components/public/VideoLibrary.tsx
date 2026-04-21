@@ -31,6 +31,15 @@ export default function VideoLibrary() {
   const [page, setPage] = useState(1);
   const limit = 12;
 
+  // Helper: builds a new URL preserving existing params and overriding one key
+  const buildUrl = (key: string, value: string) => {
+    const params = new URLSearchParams(searchStr);
+    if (value) params.set(key, value);
+    else params.delete(key);
+    const qs = params.toString();
+    return qs ? `/?${qs}` : "/";
+  };
+
   // Reset to page 1 when search query changes
   useEffect(() => {
     setPage(1);
@@ -83,7 +92,7 @@ export default function VideoLibrary() {
   const total = mainData?.total || 0;
   const totalPages = Math.ceil(total / limit);
   const isSearching = searchQuery.trim().length > 0;
-  const isCinemaView = page === 1 && !isSearching && activeSort === "newest";
+  const isCinemaView = page === 1 && !isSearching && !new URLSearchParams(searchStr).get("sortBy");
 
   const VideoCard = ({ video, showLikes = false }: { video: Video, showLikes?: boolean }) => (
     <Link href={`/watch/${video.hash}`}>
@@ -145,7 +154,7 @@ export default function VideoLibrary() {
                   <Flame className="w-5 h-5 text-primary" />
                   <h2 className="text-xl font-bold tracking-tight">Most Viewed</h2>
                 </div>
-                <Link href="/?sortBy=views">
+                <Link href={buildUrl("sortBy", "views")}>
                   <button className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors">
                     View All
                   </button>
@@ -164,7 +173,7 @@ export default function VideoLibrary() {
                   <Clock className="w-5 h-5 text-purple-400" />
                   <h2 className="text-xl font-bold tracking-tight">Recently Added</h2>
                 </div>
-                <Link href="/?sortBy=newest">
+                <Link href={buildUrl("sortBy", "newest")}>
                   <button className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors">
                     View All
                   </button>
@@ -183,7 +192,7 @@ export default function VideoLibrary() {
                   <TrendingUp className="w-5 h-5 text-pink-400" />
                   <h2 className="text-xl font-bold tracking-tight">Top Rated</h2>
                 </div>
-                <Link href="/?sortBy=likes">
+                <Link href={buildUrl("sortBy", "likes")}>
                   <button className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors">
                     View All
                   </button>
@@ -212,7 +221,7 @@ export default function VideoLibrary() {
                   {["newest", "views", "likes"].map((sort) => (
                     <button
                       key={sort}
-                      onClick={() => navigate(`/?sortBy=${sort}`)}
+                      onClick={() => navigate(buildUrl("sortBy", sort))}
                       className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
                         activeSort === sort ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                       }`}

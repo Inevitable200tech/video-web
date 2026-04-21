@@ -130,6 +130,7 @@ export default function WatchVideo() {
                     className="w-full h-full object-contain bg-black"
                     playsInline
                     controls
+                    preload="metadata"
                     controlsList="nodownload"
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}

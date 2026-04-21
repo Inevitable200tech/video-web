@@ -19,8 +19,14 @@ export default function Navbar() {
 
   const handleSearch = (value: string) => {
     setSearchValue(value);
-    if (value.trim()) navigate(`/?q=${encodeURIComponent(value.trim())}`);
-    else navigate("/");
+    const params = new URLSearchParams(window.location.search);
+    if (value.trim()) {
+      params.set("q", value.trim());
+    } else {
+      params.delete("q");
+    }
+    const qs = params.toString();
+    navigate(qs ? `/?${qs}` : "/");
   };
 
   return (

@@ -26,6 +26,7 @@ export interface IStorage {
   incrementLikes(hash: string): Promise<Video | null>;
   getCategoryThumbnails(categories: { name: string, href: string }[]): Promise<Record<string, string>>;
   deleteVideo(id: string): Promise<boolean>;
+  bulkUpdateVideos(ids: string[], updates: Partial<Video>): Promise<number>;
 
   // Comment operations
   getComments(videoId: string): Promise<Comment[]>;
@@ -55,9 +56,9 @@ export class MongoStorage implements IStorage {
       query.title = { $regex: q.trim(), $options: 'i' };
     }
 
-    let sortObj: any = { uploadedAt: -1 };
-    if (sortBy === "views") sortObj = { views: -1 };
-    else if (sortBy === "likes") sortObj = { likes: -1 };
+    let sortObj: any = { uploadedAt: -1, _id: -1 };
+    if (sortBy === "views") sortObj = { views: -1, uploadedAt: -1 };
+    else if (sortBy === "likes") sortObj = { likes: -1, uploadedAt: -1 };
     else if (sortBy === "trending") sortObj = { views: -1, uploadedAt: -1 };
 
     const [docs, total] = await Promise.all([
@@ -142,6 +143,14 @@ export class MongoStorage implements IStorage {
   async deleteVideo(id: string): Promise<boolean> {
     const result = await VideoModel.findByIdAndDelete(id).exec();
     return !!result;
+  }
+
+  async bulkUpdateVideos(ids: string[], updates: Partial<Video>): Promise<number> {
+    const result = await VideoModel.updateMany(
+      { _id: { $in: ids.map(id => new mongoose.Types.ObjectId(id)) } },
+      { $set: updates }
+    ).exec();
+    return result.modifiedCount;
   }
 
   // Comment operations
