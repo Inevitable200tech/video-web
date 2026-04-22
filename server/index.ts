@@ -32,7 +32,7 @@ app.use(clerkMiddleware());
 app.set("trust proxy", 1);
 
 // 2. Simple CSRF Middleware (Disabled for Development)
-/*
+
 const CSRF_EXCLUDE = [
   "/api/admin/login", 
   "/api/admin/developer-request", 
@@ -62,7 +62,7 @@ app.use((req, res, next) => {
     message: "Security Check Failed: Missing Security Header" 
   });
 });
-*/
+
 
 // ---------------- START ANTI-CACHING MIDDLEWARE ----------------
 
@@ -107,7 +107,7 @@ app.use((req, res, next) => {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
-      if (logLine.length > 10000) {
+      if (logLine.length > 500) {
         logLine = logLine.slice(0, 199) + "…";
       }
 
