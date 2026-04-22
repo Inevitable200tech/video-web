@@ -70,16 +70,25 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
     const role = ((clerkUser.publicMetadata?.role as string) || "user") as "admin" | "user";
 
     if (!user) {
-      user = await storage.createUser({
-        externalId: userId,
-        username,
-        email,
-        role,
-        isVerified: true
-      });
+      // If not found by externalId, check if a user exists with this email
+      const existingUserByEmail = await storage.getUserByEmail(email);
+      
+      if (existingUserByEmail) {
+        // Link existing email account to this new externalId
+        user = await storage.updateUser(existingUserByEmail.id || (existingUserByEmail as any)._id.toString(), { externalId: userId });
+      } else {
+        // Truly a new user
+        user = await storage.createUser({
+          externalId: userId,
+          username,
+          email,
+          role,
+          isVerified: true
+        });
+      }
     } else if (user.role !== role || user.username !== username) {
       // Sync updates if they changed in Clerk
-      user = await storage.updateUser(user._id.toString(), { role, username });
+      user = await storage.updateUser(user.id || (user as any)._id.toString(), { role, username });
     }
 
     (req as any).user = user;
