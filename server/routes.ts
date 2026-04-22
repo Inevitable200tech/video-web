@@ -343,11 +343,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   let initialCleaningDone = false;
   let isSyncing = false;
+  let lastGlobalSyncTime = 0;
 
   async function syncAllSources() {
     if (isSyncing) return;
+    
+    const now = Date.now();
+    const TWO_MINUTES = 2 * 60 * 1000;
+    
+    if (now - lastGlobalSyncTime < TWO_MINUTES) {
+      console.log(`[SYNC] Skipping sync: Last sync was only ${Math.round((now - lastGlobalSyncTime) / 1000)}s ago (Threshold: 120s)`);
+      return;
+    }
+
     try {
       isSyncing = true;
+      lastGlobalSyncTime = now;
       let sources = await storage.getSources(true); // only active
 
       // Migration: If no sources exist, create one from env vars
