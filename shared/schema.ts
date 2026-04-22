@@ -142,13 +142,61 @@ export const otpSchema = new Schema<OTP>({
   createdAt: { type: Date, default: Date.now, expires: 600 } // Expires in 10 minutes
 });
 
+// ---------------- BLACKLIST MANAGEMENT ----------------
+
+export interface BlacklistedVideo extends Document {
+  hash: string;
+  title?: string;
+  thumbnailHash?: string;
+  reason?: string;
+  createdAt: Date;
+}
+
+export const blacklistedVideoSchema = new Schema<BlacklistedVideo>({
+  hash: { type: String, required: true, unique: true },
+  title: { type: String },
+  thumbnailHash: { type: String },
+  reason: { type: String },
+  createdAt: { type: Date, default: Date.now },
+});
+
 // ---------------- EXPORT MODELS ----------------
 
+export interface SecondaryDatabase extends Document {
+  name: string;
+  url: string;
+  isActive: boolean;
+  createdAt: Date;
+}
+
+export const secondaryDatabaseSchema = new Schema<SecondaryDatabase>({
+  name: { type: String, required: true },
+  url: { type: String, required: true },
+  isActive: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now },
+});
+
+// ---------------- EXPORT MODELS ----------------
+
+// We'll export the schemas so they can be bound to different connections if needed
+export const models = {
+  User: userSchema,
+  Video: videoSchema,
+  Comment: commentSchema,
+  Source: sourceSchema,
+  OTP: otpSchema,
+  BlacklistedVideo: blacklistedVideoSchema,
+  SecondaryDatabase: secondaryDatabaseSchema,
+};
+
+// Default models (using default mongoose connection)
 export const UserModel = (mongoose.models && mongoose.models.User) || mongoose.model<User>("User", userSchema);
 export const VideoModel = (mongoose.models && mongoose.models.Video) || mongoose.model<Video>("Video", videoSchema);
 export const CommentModel = (mongoose.models && mongoose.models.Comment) || mongoose.model<Comment>("Comment", commentSchema);
 export const SourceModel = (mongoose.models && mongoose.models.Source) || mongoose.model<Source>("Source", sourceSchema);
 export const OTPModel = (mongoose.models && mongoose.models.OTP) || mongoose.model<OTP>("OTP", otpSchema);
+export const BlacklistedVideoModel = (mongoose.models && mongoose.models.BlacklistedVideo) || mongoose.model<BlacklistedVideo>("BlacklistedVideo", blacklistedVideoSchema);
+export const SecondaryDatabaseModel = (mongoose.models && mongoose.models.SecondaryDatabase) || mongoose.model<SecondaryDatabase>("SecondaryDatabase", secondaryDatabaseSchema);
 
 // Types for insertion
 export type InsertUser = z.infer<typeof insertUserSchema>;

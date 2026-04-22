@@ -6,13 +6,10 @@ import {
   insertVideoSchema,
   insertUserSchema,
   insertCommentSchema,
-  VideoModel,
-  SourceModel,
-  CommentModel,
   type Video,
   insertSourceSchema,
-  OTPModel,
 } from "@shared/schema";
+import { getModels } from "./db";
 import { CATEGORIES } from "@shared/constants";
 import { z } from "zod";
 import fs from "fs";
@@ -24,6 +21,7 @@ import dotenv from "dotenv";
 import multer from "multer";
 import FormData from "form-data";
 import { getAuth, clerkClient } from "@clerk/express";
+import { Resend } from "resend";
 
 // Reusable agents for keep-alive connections to speed up internal API calls
 const httpAgent = new http.Agent({ keepAlive: true });
@@ -38,9 +36,9 @@ const folderEnvPath = path.resolve("cert_env", "cert.env");
 export const envPath = fs.existsSync(rootEnvPath) ? rootEnvPath : folderEnvPath;
 dotenv.config({ path: envPath });
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "password";
+const resend = new Resend(process.env.RESEND_API_KEY || "re_test_key");
+
+
 const STORAGE_API_URL = process.env.STORAGE_API_URL || "http://localhost:3000";
 const STORAGE_API_TOKEN = process.env.STORAGE_API_TOKEN || "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "[EMAIL_ADDRESS]";
@@ -50,21 +48,21 @@ const playbackCache = new Map<string, { url: string; expires: number }>();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 // Increased file size limit to 2GB to match the frontend and storage requirements
-export const upload = multer({ 
+export const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 } 
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 }
 });
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const { userId } = getAuth(req);
-  
+
   if (!userId) {
     return res.status(401).json({ message: "Authentication required" });
   }
 
   try {
     let user = await storage.getUserByExternalId(userId);
-    
+
     // Always sync with Clerk to ensure role updates are picked up
     const clerkUser = await clerkClient.users.getUser(userId);
     const email = clerkUser.emailAddresses[0]?.emailAddress || `${clerkUser.id}@no-email.com`;
@@ -83,7 +81,7 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
       // Sync updates if they changed in Clerk
       user = await storage.updateUser(user._id.toString(), { role, username });
     }
-    
+
     (req as any).user = user;
     next();
   } catch (err) {
@@ -92,16 +90,25 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  await requireAuth(req, res, () => {
+    if ((req as any).user?.role !== "admin") {
+      return res.status(403).json({ message: "Administrator privileges required" });
+    }
+    next();
+  });
+}
+
 
 export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/me", requireAuth, (req, res) => {
     const user = (req as any).user;
-    res.json({ 
-      id: user._id || user.id, 
-      username: user.username, 
-      role: user.role, 
-      bio: user.bio, 
-      avatarHash: user.avatarHash 
+    res.json({
+      id: user._id || user.id,
+      username: user.username,
+      role: user.role,
+      bio: user.bio,
+      avatarHash: user.avatarHash
     });
   });
 
@@ -148,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ═══════════ ADMIN USER MANAGEMENT ═══════════
   app.get("/api/admin/users", requireAuth, async (req, res) => {
     if ((req as any).user?.role !== "admin") {
-      console.log(`[ADMIN] Admin access required`); 
+      console.log(`[ADMIN] Admin access required`);
       return res.status(403).json({ message: "Admin access required" });
     }
     try {
@@ -177,7 +184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           localUser = await storage.updateUser(localUser._id.toString(), { role: role as "admin" | "user" });
         }
         if (!localUser) return null;
-        
+
         // Return a clean object with 'id' for the frontend
         const userObj = (localUser as any).toObject ? (localUser as any).toObject() : localUser;
         return {
@@ -217,13 +224,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       const { id } = req.params;
-      
+
       if (!id || id === "undefined") {
         return res.status(400).json({ message: "Invalid user ID" });
       }
 
       const userToDelete = await storage.getUser(id);
-      
+
       if (!userToDelete) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -242,7 +249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 2. Delete from our local DB
       const success = await storage.deleteUser(id);
       if (!success) return res.status(404).json({ message: "User not found in DB" });
-      
+
       res.json({ message: "User removed from system and Clerk successfully" });
     } catch (error) {
       console.error("[ADMIN] Failed to delete user:", error);
@@ -333,7 +340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       isSyncing = true;
       let sources = await storage.getSources(true); // only active
-      
+
       // Migration: If no sources exist, create one from env vars
       if (sources.length === 0 && process.env.STORAGE_API_URL) {
         console.log("[SYNC] No sources found in DB. Migrating from environment variables...");
@@ -347,7 +354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[SYNC] Starting sync for ${sources.length} sources...`);
-      
+
       for (const source of sources) {
         await syncVideosFromSource(source);
       }
@@ -361,6 +368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[SYNC] Syncing from source: ${source.name} (${source.url})`);
 
       // 0. Clean existing titles in DB (Only once on server startup)
+      const { VideoModel } = getModels();
       if (!initialCleaningDone) {
         console.log("[SYNC] Performing initial title cleaning and schema updates...");
         const targetPhrase = "Desi new videoz hd / sd - DropMMS Unblock";
@@ -372,7 +380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           { title: { $regex: targetPhrase } },
           [{ $set: { title: { $trim: { input: { $replaceOne: { input: "$title", find: targetPhrase, replacement: "" } } } } } }]
         );
-        
+
         await VideoModel.updateMany(
           { likes: { $exists: false } },
           { $set: { likes: 0 } }
@@ -387,17 +395,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (response.data.success && Array.isArray(response.data.files)) {
         const files = response.data.files;
-        
-        const existingVideos = await VideoModel.find({ 
-          hash: { $in: files.map((f: any) => f.hash) } 
+
+        const { BlacklistedVideoModel, VideoModel } = getModels();
+        // Fetch blacklist to prevent re-adding deleted videos
+        const blacklistedDocs = await BlacklistedVideoModel.find({}).select('hash').lean().exec();
+        const blacklistedHashes = new Set(blacklistedDocs.map((b: any) => b.hash));
+
+        const existingVideos = await VideoModel.find({
+          hash: { $in: files.map((f: any) => f.hash) }
         }).select('hash thumbnailHash');
-        
+
         const existingMap = new Map(existingVideos.map((v: any) => [v.hash, v as any]));
 
-        const newVideos = files.filter((f: any) => !existingMap.has(f.hash));
+        // Filter: Must not be in DB AND must not be in Blacklist
+        const newVideos = files.filter((f: any) => 
+          !existingMap.has(f.hash) && !blacklistedHashes.has(f.hash)
+        );
+        
         const videosToUpdate = files.filter((f: any) => {
           const existing = existingMap.get(f.hash);
-          return existing && !existing.thumbnailHash && f.thumbnail_address;
+          return existing && !(existing as any).thumbnailHash && f.thumbnail_address;
         });
 
         if (newVideos.length > 0) {
@@ -423,7 +440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }));
           await VideoModel.bulkWrite(bulkOps);
         }
-        
+
         // Update lastSync timestamp for the source
         await storage.updateSource(source.id || source._id, { lastSync: new Date() });
       }
@@ -436,7 +453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/videos", async (req, res) => {
     try {
       // Fire-and-forget sync across all sources
-      syncAllSources().catch(() => {});
+      syncAllSources().catch(() => { });
 
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
@@ -455,7 +472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { hash } = req.params;
       const video = await storage.getVideoByHash(hash);
       if (!video) return res.status(404).json({ message: "Video not found" });
-      
+
       // Return metadata ONLY (fast)
       res.json(video);
     } catch (error: any) {
@@ -483,6 +500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const video = await storage.getVideoByHash(hash);
       if (video && video.sourceId) {
+        const { SourceModel } = getModels();
         const source = await SourceModel.findById(video.sourceId).lean().exec() as any;
         if (source && source.isActive) {
           sourceUrl = source.url;
@@ -501,13 +519,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           headers: sourceToken ? { "Authorization": `Bearer ${sourceToken}` } : {},
           timeout: 10000
         });
-        
+
         if (response.data.success) {
           const playbackUrl = response.data.download.url;
-          
+
           // Update Cache
           playbackCache.set(hash, { url: playbackUrl, expires: Date.now() + CACHE_TTL });
-          
+
           await storage.incrementViews(hash);
           res.json({
             playbackUrl,
@@ -545,7 +563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/videos/upload", requireAuth, upload.single("file"), async (req, res) => {
+  app.post("/api/videos/upload", requireAdmin, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
@@ -560,7 +578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       formData.append("title", title);
 
       console.log(`[UPLOAD] Forwarding file to storage API: ${STORAGE_API_URL}/api/upload`);
-      
+
       const storageRes = await axiosInstance.post(`${STORAGE_API_URL}/api/upload`, formData, {
         headers: {
           ...formData.getHeaders(),
@@ -571,9 +589,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (!storageRes.data.success) {
-        return res.status(500).json({ 
-          message: "Failed to store video in distributed network", 
-          details: storageRes.data.error 
+        return res.status(500).json({
+          message: "Failed to store video in distributed network",
+          details: storageRes.data.error
         });
       }
 
@@ -600,7 +618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/videos/:id", requireAuth, async (req, res) => {
+  app.delete("/api/videos/:id", requireAdmin, async (req, res) => {
     try {
       const success = await storage.deleteVideo(req.params.id);
       if (success) res.json({ success: true });
@@ -610,7 +628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/videos/bulk", requireAuth, async (req, res) => {
+  app.patch("/api/videos/bulk", requireAdmin, async (req, res) => {
     try {
       const { ids, titlePattern, category } = req.body;
       if (!Array.isArray(ids) || ids.length === 0) {
@@ -623,7 +641,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const newTitle = titlePattern.replace("{n}", (index + 1).toString());
           const updateData: any = { title: newTitle };
           if (category) updateData.category = category;
-          
+
+          const { VideoModel } = getModels();
           await VideoModel.findByIdAndUpdate(id, { $set: updateData }).exec();
         });
         await Promise.all(updates);
@@ -655,7 +674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = insertCommentSchema.parse(req.body);
       const user = (req as any).user;
       const comment = await storage.createComment(data, user._id.toString());
-      
+
       // Populate user info for the response
       const populatedComment = {
         ...comment,
@@ -665,7 +684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatarHash: user.avatarHash
         }
       };
-      
+
       res.status(201).json(populatedComment);
     } catch (error: any) {
       console.error("[COMMENT ERROR]", error.message);
@@ -673,9 +692,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ═══════════ DATABASE MANAGEMENT ═══════════
+  app.get("/api/admin/databases", requireAdmin, async (req, res) => {
+    try {
+      const dbs = await storage.getSecondaryDatabases();
+      res.json(dbs);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch databases" });
+    }
+  });
+
+  app.post("/api/admin/databases", requireAdmin, async (req, res) => {
+    try {
+      const { name, url } = req.body;
+      if (!name || !url) return res.status(400).json({ message: "Name and URL are required" });
+      const db = await storage.createSecondaryDatabase({ name, url });
+      res.status(201).json(db);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to add database" });
+    }
+  });
+
+  app.delete("/api/admin/databases/:id", requireAdmin, async (req, res) => {
+    try {
+      const success = await storage.deleteSecondaryDatabase(req.params.id);
+      if (success) res.json({ success: true });
+      else res.status(404).json({ message: "Database not found" });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to delete database" });
+    }
+  });
+
+  // ═══════════ BLACKLIST MANAGEMENT ═══════════
+  app.get("/api/admin/blacklist", requireAdmin, async (req, res) => {
+    try {
+      const blacklist = await storage.getBlacklist();
+      
+      // Attempt to recover missing titles/thumbnails for older records
+      const untitled = blacklist.filter(item => !item.title || !item.thumbnailHash);
+      
+      if (untitled.length > 0) {
+        console.log(`[BLACKLIST] Attempting to recover metadata for ${untitled.length} items...`);
+        const sources = await storage.getSources(true);
+        
+        for (const source of sources) {
+          try {
+            const response = await axiosInstance.get(`${source.url}/api/public/files`, {
+              headers: source.token ? { "Authorization": `Bearer ${source.token}` } : {},
+              timeout: 5000
+            });
+
+            if (response.data.success && Array.isArray(response.data.files)) {
+              const remoteFiles = response.data.files;
+              
+              for (const item of untitled) {
+                const match = remoteFiles.find((f: any) => f.hash === item.hash);
+                if (match) {
+                  item.title = cleanTitle(match.title || match.filename);
+                  item.thumbnailHash = match.thumbnail_address;
+                  
+                  // Update the DB silently
+                  const { BlacklistedVideoModel } = getModels();
+                  await BlacklistedVideoModel.updateOne(
+                    { hash: item.hash },
+                    { $set: { title: item.title, thumbnailHash: item.thumbnailHash } }
+                  ).exec();
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[RECOVERY ERROR] Failed to fetch from ${source.name}`);
+          }
+        }
+      }
+
+      res.json(blacklist);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch blacklist" });
+    }
+  });
+
+  app.delete("/api/admin/blacklist/:hash", requireAdmin, async (req, res) => {
+    try {
+      const success = await storage.removeFromBlacklist(req.params.hash);
+      if (success) {
+        // Trigger a sync to re-discover the restored video
+        syncAllSources().catch(err => console.error("[RESTORE SYNC ERROR]", err.message));
+        res.json({ success: true, message: "Video restored (will appear after sync)" });
+      } else {
+        res.status(404).json({ message: "Hash not found in blacklist" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to remove from blacklist" });
+    }
+  });
+
   // 🚀 Immediate Startup Sync
   // Runs once when the server starts to clean titles and discover new videos
   syncAllSources().catch(err => console.error("[STARTUP SYNC ERROR]", err.message));
+
+  // DMCA Report Route
+  app.post("/api/dmca-report", requireAuth, async (req, res) => {
+    try {
+      const { videoId, videoTitle, videoHash, conflictType, details } = req.body;
+      const user = (req as any).user;
+
+      if (!videoId || !details) {
+        return res.status(400).json({ message: "Video ID and details are required." });
+      }
+
+      const emailHtml = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+          <h1 style="color: #e11d48; border-bottom: 2px solid #e11d48; padding-bottom: 10px;">Legal Takedown Report</h1>
+          <p><strong>Reporter:</strong> ${user.username} (${user.email})</p>
+          <p><strong>Conflict Type:</strong> ${conflictType || "Not Specified"}</p>
+          <p><strong>Video Title:</strong> ${videoTitle}</p>
+          <p><strong>Video Link:</strong> <a href="${req.protocol}://${req.get("host")}/watch/${videoHash}">View Video (${videoHash})</a></p>
+          <div style="background-color: #f8fafc; padding: 15px; border-left: 4px solid #94a3b8; margin-top: 20px;">
+            <p style="margin: 0;"><strong>Report Details:</strong></p>
+            <p style="margin-top: 8px; white-space: pre-wrap;">${details}</p>
+          </div>
+          <p style="color: #64748b; font-size: 12px; margin-top: 30px;">Action is required within 48 hours to maintain legal safe harbor compliance.</p>
+        </div>
+      `;
+      console.log("[DMCA] Attempting to send email to", process.env.RESEND_API_KEY);
+      if (process.env.RESEND_API_KEY) {
+        console.log(`[DMCA] Attempting to send email to ${ADMIN_EMAIL} using Resend...`);
+        const { data, error } = await resend.emails.send({
+          from: "Legal Compliance <onboarding@resend.dev>",
+          to: ADMIN_EMAIL,
+          subject: `🚨 [${conflictType || "Legal Report"}] Action Required: ${videoTitle}`,
+          html: emailHtml,
+        });
+
+        if (error) {
+          console.error("[RESEND ERROR]", JSON.stringify(error, null, 2));
+          return res.status(500).json({ message: "Failed to send email via Resend", details: error });
+        }
+
+        console.log(`[DMCA] Report sent successfully to ${ADMIN_EMAIL} for video ${videoId}. Resend ID: ${data?.id}`);
+      } else {
+        console.warn(`[DMCA] RESEND_API_KEY is not set. Saving report to logs only.`);
+        console.log(emailHtml);
+      }
+
+      res.json({ success: true, message: "DMCA report submitted successfully." });
+    } catch (error: any) {
+      console.error("[DMCA ERROR]", error);
+      res.status(500).json({ message: "Failed to submit DMCA report." });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

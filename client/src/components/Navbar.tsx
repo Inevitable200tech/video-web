@@ -163,7 +163,19 @@ export default function Navbar() {
 
       {/* Mobile Nav */}
       {isMenuOpen && (
-        <div className="md:hidden bg-background border-b border-white/5 px-4 pt-4 pb-8 space-y-4">
+        <div className="md:hidden bg-background border-b border-white/5 px-4 pt-4 pb-8 space-y-4 shadow-2xl">
+          {/* Mobile Search */}
+          <div className="relative mb-6">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground focus-within:text-primary transition-colors" />
+            <input 
+              type="text"
+              value={searchValue}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search videos..."
+              className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:border-primary/50 transition-all text-foreground placeholder:text-muted-foreground/50"
+            />
+          </div>
+
           <Link href="/categories">
             <div onClick={() => setIsMenuOpen(false)} className="w-full flex items-center justify-center gap-2 py-3 bg-primary/10 border border-primary/20 rounded-xl text-primary text-[10px] font-bold uppercase tracking-widest">
               <LayoutGrid className="w-4 h-4" />

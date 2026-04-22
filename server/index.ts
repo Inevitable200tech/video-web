@@ -120,18 +120,13 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
-  const mongoUrl = process.env.MONGO_URL || "mongodb://localhost:27017/schoolconnect";
-  log(`Attempting MongoDB connection to: ${mongoUrl}`);
-  try {
-    await mongoose.connect(mongoUrl);
-    log(`Connected to MongoDB at ${mongoUrl}`);
+import { connectDatabases } from "./db";
 
-    // Initialize secondary media DB connections
-    log("[INIT] Media DB connections loaded");
+(async () => {
+  try {
+    await connectDatabases();
   } catch (err) {
-    log(`Failed to connect to MongoDB: ${(err instanceof Error ? err.message : String(err))}`);
-    log("Exiting process due to MongoDB connection failure.");
+    log("Exiting process due to Database connection failure.");
     process.exit(1);
   }
 

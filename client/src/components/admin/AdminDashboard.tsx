@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Trash2, Video as VideoIcon, ExternalLink, BarChart3, Users, Edit3,
   CheckSquare, X, Search, ChevronLeft, ChevronRight, Play, ShieldCheck,
-  Eye, Heart, ChevronDown, Database, Activity, RefreshCcw, Plus
+  Eye, Heart, ChevronDown, Database, Activity, RefreshCcw, Plus, Ban, RotateCcw,
+  HardDrive
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Link } from "wouter";
@@ -46,7 +48,16 @@ interface SourceData {
   createdAt: string;
 }
 
-type Tab = "videos" | "users" | "sources";
+interface BlacklistedItem {
+  id: string;
+  hash: string;
+  title?: string;
+  thumbnailHash?: string;
+  reason?: string;
+  createdAt: string;
+}
+
+type Tab = "videos" | "users" | "sources" | "blacklist" | "databases";
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -54,6 +65,11 @@ export default function AdminDashboard() {
   const queryClient = useQueryClient();
 
   const [tab, setTab] = useState<Tab>("videos");
+  
+  // Reset search when switching tabs
+  useEffect(() => {
+    setSearch("");
+  }, [tab]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isBulkEditDialogOpen, setIsBulkEditDialogOpen] = useState(false);
   const [titlePattern, setTitlePattern] = useState("");
@@ -62,6 +78,8 @@ export default function AdminDashboard() {
   const [previewHash, setPreviewHash] = useState<string | null>(null);
   const [isAddSourceOpen, setIsAddSourceOpen] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", url: "", token: "" });
+  const [isAddDbOpen, setIsAddDbOpen] = useState(false);
+  const [newDb, setNewDb] = useState({ name: "", url: "" });
   const limit = 15;
 
   // Reset page on search
@@ -105,6 +123,7 @@ export default function AdminDashboard() {
       toast({ title: "Video deleted" });
       setSelectedIds([]);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/blacklist"] });
     },
     onError: () => toast({ title: "Delete failed", variant: "destructive" }),
   });
@@ -231,8 +250,78 @@ export default function AdminDashboard() {
       const res = await fetch("/api/admin/sources/sync", { method: "POST" });
       if (!res.ok) throw new Error("Sync failed");
     },
-    onSuccess: () => toast({ title: "Sync initiated" }),
+    onSuccess: () => {
+      toast({ title: "Sync triggered" });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+    },
     onError: () => toast({ title: "Sync failed", variant: "destructive" }),
+  });
+
+  // ── Database Management ──
+  const { data: databases, isLoading: databasesLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/databases"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/databases");
+      if (!res.ok) throw new Error("Failed to fetch databases");
+      return res.json();
+    },
+    enabled: tab === "databases",
+  });
+
+  const createDbMutation = useMutation({
+    mutationFn: async (data: { name: string, url: string }) => {
+      const res = await fetch("/api/admin/databases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Create failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Database cluster added" });
+      setIsAddDbOpen(false);
+      setNewDb({ name: "", url: "" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/databases"] });
+    },
+    onError: () => toast({ title: "Failed to add database", variant: "destructive" }),
+  });
+
+  const deleteDbMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/databases/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+    },
+    onSuccess: () => {
+      toast({ title: "Database cluster removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/databases"] });
+    },
+  });
+
+
+
+  // ── Blacklist Management ──
+  const { data: blacklist, isLoading: blacklistLoading } = useQuery<BlacklistedItem[]>({
+    queryKey: ["/api/admin/blacklist"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/blacklist");
+      if (!res.ok) throw new Error("Failed to fetch blacklist");
+      return res.json();
+    },
+    enabled: tab === "blacklist",
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (hash: string) => {
+      const res = await fetch(`/api/admin/blacklist/${hash}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Restore failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: data.message || "Video restored" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/blacklist"] });
+    },
+    onError: () => toast({ title: "Restore failed", variant: "destructive" }),
   });
 
   const toggleSelect = (id: string) =>
@@ -267,7 +356,7 @@ export default function AdminDashboard() {
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
             <Input
-              placeholder="Search videos..."
+              placeholder={`Search ${tab}...`}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-white/5 border-white/10 rounded-xl pl-11 pr-4 h-12 w-72 text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 transition-all"
@@ -296,7 +385,7 @@ export default function AdminDashboard() {
 
         {/* ─── Tabs ─── */}
         <div className="flex gap-1 p-1 bg-white/5 rounded-xl w-fit border border-white/5">
-          {(["videos", "users", "sources"] as Tab[]).map(t => (
+          {(["videos", "users", "sources", "blacklist", "databases"] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -507,7 +596,9 @@ export default function AdminDashboard() {
                     </TableRow>
                   ))
                 ) : users && users.length > 0 ? (
-                  users.map((u: any) => (
+                  users
+                    .filter((u: any) => u.username.toLowerCase().includes(search.toLowerCase()))
+                    .map((u: any) => (
                     <TableRow key={u.id || u._id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
                       <TableCell className="px-6 py-4 font-bold text-foreground">
                         <Link href={`/profile/${u.username}`}>
@@ -622,7 +713,10 @@ export default function AdminDashboard() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ) : sources?.map((s) => (
+                ) : sources?.filter(s => 
+                    s.name.toLowerCase().includes(search.toLowerCase()) || 
+                    s.url.toLowerCase().includes(search.toLowerCase())
+                  ).map((s) => (
                   <TableRow key={s.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
                     <TableCell className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -662,6 +756,184 @@ export default function AdminDashboard() {
                 ))}
               </TableBody>
             </Table>
+          </div>
+        )}
+
+        {/* ─── Blacklist Tab ─── */}
+        {tab === "blacklist" && (
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/5">
+              <h2 className="text-sm font-black uppercase tracking-widest text-foreground">Blacklisted Hashes</h2>
+              <p className="text-[10px] text-muted-foreground font-bold mt-1 uppercase tracking-widest">Restore deleted videos to allow them to be re-discovered</p>
+            </div>
+
+            <Table>
+              <TableHeader className="bg-white/[0.02]">
+                <TableRow className="border-white/5 hover:bg-transparent">
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Preview</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Title / Hash</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Reason</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Date</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {blacklistLoading ? (
+                  [...Array(3)].map((_, i) => (
+                    <TableRow key={i} className="border-white/5">
+                      <TableCell className="px-6 py-4"><Skeleton className="h-12 w-20 rounded-lg bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-48 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-40 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-24 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4 text-right"><Skeleton className="h-8 w-24 ml-auto bg-white/5" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : blacklist?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-48 text-center">
+                      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                        <Ban className="w-12 h-12 opacity-10" />
+                        <p className="text-xs font-bold uppercase tracking-widest">Your blacklist is empty</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : blacklist?.filter(item => 
+                    (item.title && item.title.toLowerCase().includes(search.toLowerCase())) ||
+                    item.hash.toLowerCase().includes(search.toLowerCase()) || 
+                    (item.reason && item.reason.toLowerCase().includes(search.toLowerCase()))
+                  ).map((item) => (
+                  <TableRow key={item.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
+                    <TableCell className="px-6 py-4">
+                      <div 
+                        className="w-48 h-28 rounded-2xl overflow-hidden bg-black border border-white/5 cursor-pointer relative group/bt"
+                        onClick={() => setPreviewHash(item.hash)}
+                      >
+                        <img 
+                          src={item.thumbnailHash || `https://storage-sub-system.onrender.com/api/thumbnail/${item.hash}`} 
+                          alt="" 
+                          className="w-full h-full object-cover group-hover/bt:scale-110 transition-transform duration-500"
+                          onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1536240478700-b869070f9279?q=80&w=400&auto=format&fit=crop"; }}
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/bt:opacity-100 transition-opacity flex items-center justify-center">
+                          <Play className="w-10 h-10 text-white fill-white" />
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-6 py-4">
+                      <div className="space-y-1">
+                        <p className="text-foreground font-bold text-xs truncate max-w-[200px]">{item.title || "Untitled Video"}</p>
+                        <code className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-muted-foreground font-mono">{item.hash.slice(0, 16)}...</code>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-6 py-4">
+                      <span className="text-[10px] text-foreground/60 line-clamp-1 italic">{item.reason || "N/A"}</span>
+                    </TableCell>
+                    <TableCell className="px-6 py-4 text-xs text-muted-foreground">
+                      {new Date(item.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="px-6 py-4 text-right space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-8 h-8 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        onClick={() => setPreviewHash(item.hash)}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-2 h-8 rounded-xl text-[10px] font-black uppercase tracking-widest bg-primary/5 hover:bg-primary/10 text-primary"
+                        onClick={() => { if (confirm("Restore this video? It will be re-added to discovery on the next sync.")) restoreMutation.mutate(item.hash); }}
+                        disabled={restoreMutation.isPending}
+                      >
+                        <RotateCcw className={`w-3 h-3 ${restoreMutation.isPending && restoreMutation.variables === item.hash ? "animate-spin" : ""}`} />
+                        Restore
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {/* ─── Databases Tab ─── */}
+        {tab === "databases" && (
+          <div className="p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex items-center justify-between mb-8">
+              <div className="space-y-1">
+                <h2 className="text-xl font-black uppercase tracking-tighter text-foreground">Storage Network</h2>
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60">Manage your MongoDB cluster farm</p>
+              </div>
+              <Button 
+                onClick={() => setIsAddDbOpen(true)}
+                className="gap-2 h-10 rounded-xl text-[10px] font-black uppercase tracking-widest bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:scale-105 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                Add New Cluster
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Primary DB Card */}
+              <div className="bg-white/[0.03] border border-primary/20 rounded-2xl p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Database className="w-5 h-5 text-primary" />
+                  </div>
+                  <Badge className="bg-primary/20 text-primary border-none text-[8px] font-black uppercase tracking-widest">Primary</Badge>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Main Authentication DB</h3>
+                  <p className="text-[10px] text-muted-foreground mt-1 truncate">Managed via System ENV</p>
+                </div>
+                <div className="pt-2 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-green-500 uppercase tracking-widest">Connected</span>
+                </div>
+              </div>
+
+              {/* Secondary DBs */}
+              {databases?.map((db: any) => (
+                <div key={db.id} className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 space-y-4 hover:border-white/10 transition-colors group">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-primary/5 transition-colors">
+                      <HardDrive className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-white/5 text-muted-foreground border-none text-[8px] font-black uppercase tracking-widest">Secondary</Badge>
+                      <button 
+                        onClick={() => { if(confirm("Remove this cluster? New data will fall back to previous instances.")) deleteDbMutation.mutate(db.id); }}
+                        className="text-muted-foreground hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">{db.name}</h3>
+                    <code className="text-[9px] text-muted-foreground mt-1 truncate block opacity-50 font-mono">{db.url.split('@')[1]?.split('?')[0] || "Hidden"}</code>
+                  </div>
+                  <div className="pt-2 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Active Storage</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {databases?.length === 0 && (
+              <div className="mt-8 border-2 border-dashed border-white/5 rounded-3xl p-12 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <HardDrive className="w-12 h-12 text-muted-foreground opacity-20" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">No Secondary Clusters</p>
+                    <p className="text-[10px] text-muted-foreground/40 max-w-[200px] mx-auto">Add more MongoDB instances to increase your metadata storage capacity infinitely.</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -734,6 +1006,97 @@ export default function AdminDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ─── Add Source Dialog ─── */}
+      <Dialog open={isAddSourceOpen} onOpenChange={setIsAddSourceOpen}>
+        <DialogContent className="bg-background/95 backdrop-blur-2xl border-white/10 text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black uppercase tracking-tighter">Add <span className="text-primary">Storage Source</span></DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Source Name</Label>
+              <Input
+                placeholder="e.g. Primary Node"
+                value={newSource.name}
+                onChange={(e) => setNewSource({ ...newSource, name: e.target.value })}
+                className="bg-white/5 border-white/10 rounded-xl h-12"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Base URL</Label>
+              <Input
+                placeholder="https://node1.example.com"
+                value={newSource.url}
+                onChange={(e) => setNewSource({ ...newSource, url: e.target.value })}
+                className="bg-white/5 border-white/10 rounded-xl h-12"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">API Token (Optional)</Label>
+              <Input
+                placeholder="••••••••••••"
+                type="password"
+                value={newSource.token}
+                onChange={(e) => setNewSource({ ...newSource, token: e.target.value })}
+                className="bg-white/5 border-white/10 rounded-xl h-12"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsAddSourceOpen(false)} className="font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Cancel</Button>
+            <Button 
+              onClick={() => createSourceMutation.mutate(newSource)}
+              disabled={!newSource.name || !newSource.url || createSourceMutation.isPending}
+              className="bg-primary text-primary-foreground font-black uppercase tracking-widest text-[10px] rounded-xl px-8"
+            >
+              Add Source
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Add Database Dialog ─── */}
+      <Dialog open={isAddDbOpen} onOpenChange={setIsAddDbOpen}>
+        <DialogContent className="bg-background/95 backdrop-blur-2xl border-white/10 text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black uppercase tracking-tighter">Add <span className="text-primary">Metadata Cluster</span></DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1">
+              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-4 opacity-60">Add a new MongoDB Atlas URI to increase your storage pool.</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Cluster Name</Label>
+              <Input
+                placeholder="e.g. Free Tier Node 2"
+                value={newDb.name}
+                onChange={(e) => setNewDb({ ...newDb, name: e.target.value })}
+                className="bg-white/5 border-white/10 rounded-xl h-12"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">MongoDB Connection URI</Label>
+              <Input
+                placeholder="mongodb+srv://user:pass@cluster.mongodb.net/dbname"
+                value={newDb.url}
+                onChange={(e) => setNewDb({ ...newDb, url: e.target.value })}
+                className="bg-white/5 border-white/10 rounded-xl h-12 font-mono text-[10px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsAddDbOpen(false)} className="font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Cancel</Button>
+            <Button 
+              onClick={() => createDbMutation.mutate(newDb)}
+              disabled={!newDb.name || !newDb.url || createDbMutation.isPending}
+              className="bg-primary text-primary-foreground font-black uppercase tracking-widest text-[10px] rounded-xl px-8"
+            >
+              Add Cluster
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

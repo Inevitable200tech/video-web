@@ -10,6 +10,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ClerkProvider } from "@clerk/clerk-react";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 import NotFound from "./pages/not-found";
 
 // Lazy load pages from components
@@ -20,6 +21,13 @@ const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
 const CategoriesPage = lazy(() => import("./components/public/CategoriesPage"));
 const AuthPage = lazy(() => import("./components/public/AuthPage"));
 const ProfilePage = lazy(() => import("./components/public/ProfilePage"));
+
+const { TermsOfService, PrivacyPolicy, DMCACompliance, ContentGuidelines } = await import("./components/public/LegalPages").then(m => ({
+  TermsOfService: lazy(() => Promise.resolve({ default: m.TermsOfService })),
+  PrivacyPolicy: lazy(() => Promise.resolve({ default: m.PrivacyPolicy })),
+  DMCACompliance: lazy(() => Promise.resolve({ default: m.DMCACompliance })),
+  ContentGuidelines: lazy(() => Promise.resolve({ default: m.ContentGuidelines }))
+}));
 
 // --- Auto add Headers for CSRF Protection ------------
 if (typeof window !== 'undefined') {
@@ -67,7 +75,7 @@ function App() {
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <AuthProvider>
-              <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30 selection:text-cyan-400">
+              <div className="min-h-screen flex flex-col bg-[#050505] selection:bg-cyan-500/30 selection:text-cyan-400">
                 <Navbar />
                 <Suspense fallback={<LoadingFallback />}>
                   <Switch>
@@ -87,11 +95,18 @@ function App() {
                     <Route path="/categories" component={CategoriesPage} />
                     <Route path="/profile/:username" component={ProfilePage} />
                     
+                    {/* Legal Routes */}
+                    <Route path="/terms" component={TermsOfService} />
+                    <Route path="/privacy" component={PrivacyPolicy} />
+                    <Route path="/dmca" component={DMCACompliance} />
+                    <Route path="/guidelines" component={ContentGuidelines} />
+                    
                     {/* Fallback route for 404 */}
                     <Route component={NotFound} />
                   </Switch>
                 </Suspense>
                 <Toaster />
+                <Footer />
               </div>
             </AuthProvider>
           </TooltipProvider>

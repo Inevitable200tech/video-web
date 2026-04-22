@@ -16,7 +16,7 @@ interface Comment {
     _id: string;
     username: string;
     avatarHash?: string;
-  };
+  } | null;
   text: string;
   createdAt: string;
 }
@@ -132,10 +132,10 @@ export default function CommentSection({ videoId }: CommentSectionProps) {
               >
                 <div className="flex gap-4 group">
                   {/* Avatar — links to profile */}
-                  <Link href={`/profile/${comment.userId.username}`}>
-                    <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 group-hover:border-primary/30 hover:border-primary/60 transition-colors cursor-pointer">
-                      {comment.userId.avatarHash ? (
-                        <img src={`https://www.gravatar.com/avatar/${comment.userId.avatarHash}?d=identicon`} alt={comment.userId.username} className="w-full h-full rounded-full" />
+                  <Link href={comment.userId ? `/profile/${comment.userId.username}` : '#'}>
+                    <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 group-hover:border-primary/30 hover:border-primary/60 transition-colors cursor-pointer overflow-hidden">
+                      {comment.userId?.avatarHash ? (
+                        <img src={`https://www.gravatar.com/avatar/${comment.userId.avatarHash}?d=identicon`} alt={comment.userId.username} className="w-full h-full object-cover" />
                       ) : (
                         <User className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                       )}
@@ -145,9 +145,9 @@ export default function CommentSection({ videoId }: CommentSectionProps) {
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center gap-3">
                       {/* Username — links to profile */}
-                      <Link href={`/profile/${comment.userId.username}`}>
-                        <span className="text-sm font-bold text-foreground hover:text-primary transition-colors cursor-pointer">
-                          {comment.userId.username}
+                      <Link href={comment.userId ? `/profile/${comment.userId.username}` : '#'}>
+                        <span className={`text-sm font-bold transition-colors cursor-pointer ${comment.userId ? 'text-foreground hover:text-primary' : 'text-muted-foreground line-through'}`}>
+                          {comment.userId?.username || '[Deleted User]'}
                         </span>
                       </Link>
                       <span className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">
