@@ -22,12 +22,10 @@ const CategoriesPage = lazy(() => import("./components/public/CategoriesPage"));
 const AuthPage = lazy(() => import("./components/public/AuthPage"));
 const ProfilePage = lazy(() => import("./components/public/ProfilePage"));
 
-const { TermsOfService, PrivacyPolicy, DMCACompliance, ContentGuidelines } = await import("./components/public/LegalPages").then(m => ({
-  TermsOfService: lazy(() => Promise.resolve({ default: m.TermsOfService })),
-  PrivacyPolicy: lazy(() => Promise.resolve({ default: m.PrivacyPolicy })),
-  DMCACompliance: lazy(() => Promise.resolve({ default: m.DMCACompliance })),
-  ContentGuidelines: lazy(() => Promise.resolve({ default: m.ContentGuidelines }))
-}));
+const TermsOfService = lazy(() => import("./components/public/LegalPages").then(m => ({ default: m.TermsOfService })));
+const PrivacyPolicy = lazy(() => import("./components/public/LegalPages").then(m => ({ default: m.PrivacyPolicy })));
+const DMCACompliance = lazy(() => import("./components/public/LegalPages").then(m => ({ default: m.DMCACompliance })));
+const ContentGuidelines = lazy(() => import("./components/public/LegalPages").then(m => ({ default: m.ContentGuidelines })));
 
 // --- Auto add Headers for CSRF Protection ------------
 if (typeof window !== 'undefined') {
