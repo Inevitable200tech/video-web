@@ -572,59 +572,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/videos/upload", requireAdmin, upload.single("file"), async (req, res) => {
-    try {
-      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-
-      const { title, description, category } = req.body;
-
-      // 1. Forward to Storage API
-      const formData = new FormData();
-      formData.append("file", req.file.buffer, {
-        filename: req.file.originalname,
-        contentType: req.file.mimetype,
-      });
-      formData.append("title", title);
-
-      console.log(`[UPLOAD] Forwarding file to storage API: ${STORAGE_API_URL}/api/upload`);
-
-      const storageRes = await axiosInstance.post(`${STORAGE_API_URL}/api/upload`, formData, {
-        headers: {
-          ...formData.getHeaders(),
-          "Authorization": `Bearer ${STORAGE_API_TOKEN}`
-        },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-      });
-
-      if (!storageRes.data.success) {
-        return res.status(500).json({
-          message: "Failed to store video in distributed network",
-          details: storageRes.data.error
-        });
-      }
-
-      const hash = storageRes.data.hash;
-      console.log(`[UPLOAD] Successfully stored file with hash: ${hash}`);
-
-      // 2. Save metadata in our DB
-      const videoData = insertVideoSchema.parse({
-        title: cleanTitle(title),
-        description,
-        category: category || "Cinema",
-        hash,
-      });
-
-      const video = await storage.createVideo(videoData, (req as any).user?.id);
-      res.status(201).json(video);
-    } catch (error: any) {
-      console.error("[UPLOAD ERROR]", error.response?.data || error.message);
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ errors: error.errors });
-      } else {
-        res.status(500).json({ message: "Upload failed: " + (error.response?.data?.error || error.message) });
-      }
-    }
+  app.post("/api/videos/upload", requireAuth, async (req, res) => {
+    res.status(503).json({ 
+      message: "Upload system is temporarily offline for maintenance and optimization. Please check back later." 
+    });
   });
 
   app.delete("/api/videos/:id", requireAdmin, async (req, res) => {
