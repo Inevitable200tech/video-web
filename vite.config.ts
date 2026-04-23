@@ -20,7 +20,7 @@ Allow: /api/media/
 Disallow: /admin
 
 # Sitemap
-Sitemap: https://nmhss.onrender.com/sitemap.xml
+Sitemap: https:/desi-new-video.onrender.com/sitemap.xml
 `;
     const outDir = path.resolve("dist/public");
     // Add a small delay to ensure Sitemap plugin has finished
@@ -33,21 +33,19 @@ Sitemap: https://nmhss.onrender.com/sitemap.xml
 export default defineConfig({
   plugins: [
     Sitemap({
-      hostname: "https://nmhss.onrender.com",
+      hostname: "https://desi-new-video.onrender.com",
       dynamicRoutes: [
         "/",
-        "/about-us",
-        "/gallery",
-        "/students",
-        "/students-upload",
-        "/about-teachers",
-        "/sports-champions",
-        "/academic-results",
-        "/arts-science",
-        "/news",
-        "/terms-of-service",
-        "/privacy-policy",
-        "/accessibility",
+        "/?sortBy=views",
+        "/?q=Mallu",
+        "/?q=Hot",
+        "/?q=HD",
+        "/?q=New",
+        "/?q=OnlyFans",
+        "/?q=Aunty",
+        "/?q=Bhabhi",
+        "/?q=Indian",
+        
       ],
       outDir: "dist/public",
     }),
