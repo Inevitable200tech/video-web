@@ -43,9 +43,7 @@ const STORAGE_API_URL = process.env.STORAGE_API_URL || "http://localhost:3000";
 const STORAGE_API_TOKEN = process.env.STORAGE_API_TOKEN || "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "[EMAIL_ADDRESS]";
 
-// Simple in-memory cache for playback URLs to speed up loading
-const playbackCache = new Map<string, { url: string; expires: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 
 // Increased file size limit to 2GB to match the frontend and storage requirements
 export const upload = multer({
@@ -499,19 +497,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/videos/:hash/playback", requireAuth, async (req, res) => {
+  app.get("/api/videos/:hash/playback", async (req, res) => {
     try {
       const { hash } = req.params;
 
-      // 1. Check Cache
-      const cached = playbackCache.get(hash);
-      if (cached && cached.expires > Date.now()) {
-        console.log(`[STORAGE] Using cached URL for hash: ${hash}`);
-        return res.json({
-          playbackUrl: cached.url,
-          expiresAt: cached.expires
-        });
-      }
+
 
       // 2. Resolve source
       let sourceUrl = STORAGE_API_URL;
@@ -542,8 +532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (response.data.success) {
           const playbackUrl = response.data.download.url;
 
-          // Update Cache
-          playbackCache.set(hash, { url: playbackUrl, expires: Date.now() + CACHE_TTL });
+
 
           await storage.incrementViews(hash);
           res.json({
