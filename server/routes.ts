@@ -166,9 +166,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: "Admin access required" });
     }
     try {
-      // 1. Fetch all users from Clerk
-      const clerkUsers = await clerkClient.users.getUserList();
-      console.log(`[ADMIN] Found ${clerkUsers.data.length} users in Clerk`);
+      const limit = parseInt(req.query.limit as string) || 100;
+      const search = req.query.q as string;
+
+      // 1. Fetch users from Clerk with limit and search query
+      const clerkUsers = await clerkClient.users.getUserList({
+        limit,
+        query: search || undefined
+      });
+      console.log(`[ADMIN] Found ${clerkUsers.data.length} users in Clerk${search ? ` matching "${search}"` : ""}`);
 
       // 2. Ensure each Clerk user exists in our local DB
       const syncedUsers = await Promise.all(clerkUsers.data.map(async (clerkUser) => {

@@ -1,10 +1,20 @@
 import { Link, useLocation } from "wouter";
-import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid, User } from "lucide-react";
+import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid, User, Sparkles, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CATEGORIES } from "@shared/constants";
 import { useAuth } from "@/hooks/use-auth";
 import { UserButton } from "@clerk/clerk-react";
+import { useToast } from "@/hooks/use-toast";
+import Cookies from "js-cookie";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
 
 export default function Navbar() {
   const [location, navigate] = useLocation();
@@ -32,8 +42,10 @@ export default function Navbar() {
   };
 
   const { user, isLoading, logoutMutation } = useAuth();
-
-  const handleLogout = () => logoutMutation.mutate();
+  
+  const handleLogout = () => {
+    logoutMutation.mutate();
+  };
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/20 backdrop-blur-lg border-b border-white/[0.03]">

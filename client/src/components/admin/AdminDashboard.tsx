@@ -150,9 +150,11 @@ export default function AdminDashboard() {
 
   // ── User Management ──
   const { data: users, isLoading: usersLoading } = useQuery<UserData[]>({
-    queryKey: ["/api/admin/users"],
+    queryKey: ["/api/admin/users", search],
     queryFn: async () => {
-      const res = await fetch("/api/admin/users");
+      const params = new URLSearchParams();
+      if (search) params.set("q", search);
+      const res = await fetch(`/api/admin/users?${params}`);
       if (!res.ok) throw new Error("Failed to fetch users");
       return res.json();
     },
@@ -596,9 +598,7 @@ export default function AdminDashboard() {
                     </TableRow>
                   ))
                 ) : users && users.length > 0 ? (
-                  users
-                    .filter((u: any) => u.username.toLowerCase().includes(search.toLowerCase()))
-                    .map((u: any) => (
+                  users.map((u: any) => (
                     <TableRow key={u.id || u._id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
                       <TableCell className="px-6 py-4 font-bold text-foreground">
                         <Link href={`/profile/${u.username}`}>

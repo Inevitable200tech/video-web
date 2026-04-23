@@ -11,6 +11,7 @@ import { AuthProvider } from "@/hooks/use-auth";
 import { ClerkProvider } from "@clerk/clerk-react";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import WelcomeLightbox from "./components/WelcomeLightbox";
 import NotFound from "./pages/not-found";
 
 // Lazy load pages from components
@@ -75,6 +76,7 @@ function App() {
             <AuthProvider>
               <div className="min-h-screen flex flex-col bg-[#050505] selection:bg-cyan-500/30 selection:text-cyan-400">
                 <Navbar />
+                <WelcomeLightbox />
                 <Suspense fallback={<LoadingFallback />}>
                   <Switch>
                     {/* Auth routes first */}
