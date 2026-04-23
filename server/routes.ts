@@ -499,7 +499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/videos/:hash/playback", async (req, res) => {
+  app.get("/api/videos/:hash/playback", requireAuth, async (req, res) => {
     try {
       const { hash } = req.params;
 
