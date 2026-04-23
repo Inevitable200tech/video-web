@@ -72,7 +72,7 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
     if (!user) {
       // If not found by externalId, check if a user exists with this email
       const existingUserByEmail = await storage.getUserByEmail(email);
-      
+
       if (existingUserByEmail) {
         // Link existing email account to this new externalId
         user = await storage.updateUser(existingUserByEmail.id || (existingUserByEmail as any)._id.toString(), { externalId: userId });
@@ -334,8 +334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ═══════════ VIDEO SYNC LOGIC ═══════════
-  const PROMO_REGEX = / -? Desi new videoz hd \/ sd - DropMMS Unblock/gi;
-
+  const PROMO_REGEX = / -? Desi new videoz hd \/ sd - DropMMS Unblock|DropMMS Unblock/gi;
   function cleanTitle(title: string): string {
     if (!title) return "Untitled Video";
     return title.replace(PROMO_REGEX, "").replace(/\s+/g, " ").trim();
@@ -347,10 +346,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   async function syncAllSources() {
     if (isSyncing) return;
-    
+
     const now = Date.now();
     const TWO_MINUTES = 2 * 60 * 1000;
-    
+
     if (now - lastGlobalSyncTime < TWO_MINUTES) {
       console.log(`[SYNC] Skipping sync: Last sync was only ${Math.round((now - lastGlobalSyncTime) / 1000)}s ago (Threshold: 120s)`);
       return;
@@ -428,10 +427,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const existingMap = new Map(existingVideos.map((v: any) => [v.hash, v as any]));
 
         // Filter: Must not be in DB AND must not be in Blacklist
-        const newVideos = files.filter((f: any) => 
+        const newVideos = files.filter((f: any) =>
           !existingMap.has(f.hash) && !blacklistedHashes.has(f.hash)
         );
-        
+
         const videosToUpdate = files.filter((f: any) => {
           const existing = existingMap.get(f.hash);
           return existing && !(existing as any).thumbnailHash && f.thumbnail_address;
@@ -584,8 +583,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/videos/upload", requireAuth, async (req, res) => {
-    res.status(503).json({ 
-      message: "Upload system is temporarily offline for maintenance and optimization. Please check back later." 
+    res.status(503).json({
+      message: "Upload system is temporarily offline for maintenance and optimization. Please check back later."
     });
   });
 
@@ -698,14 +697,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/blacklist", requireAdmin, async (req, res) => {
     try {
       const blacklist = await storage.getBlacklist();
-      
+
       // Attempt to recover missing titles/thumbnails for older records
       const untitled = blacklist.filter(item => !item.title || !item.thumbnailHash);
-      
+
       if (untitled.length > 0) {
         console.log(`[BLACKLIST] Attempting to recover metadata for ${untitled.length} items...`);
         const sources = await storage.getSources(true);
-        
+
         for (const source of sources) {
           try {
             const response = await axiosInstance.get(`${source.url}/api/public/files`, {
@@ -715,13 +714,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (response.data.success && Array.isArray(response.data.files)) {
               const remoteFiles = response.data.files;
-              
+
               for (const item of untitled) {
                 const match = remoteFiles.find((f: any) => f.hash === item.hash);
                 if (match) {
                   item.title = cleanTitle(match.title || match.filename);
                   item.thumbnailHash = match.thumbnail_address;
-                  
+
                   // Update the DB silently
                   const { BlacklistedVideoModel } = getModels();
                   await BlacklistedVideoModel.updateOne(
