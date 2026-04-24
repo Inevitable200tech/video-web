@@ -1,20 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { Play, Upload, Search, Menu, X, LogIn, ChevronDown, LayoutGrid, User, Sparkles, Info } from "lucide-react";
+import { Play, Search, Menu, X, ChevronDown, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { CATEGORIES } from "@shared/constants";
 import { useAuth } from "@/hooks/use-auth";
 import { UserButton } from "@clerk/clerk-react";
-import { useToast } from "@/hooks/use-toast";
-import Cookies from "js-cookie";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogDescription,
-  DialogFooter
-} from "@/components/ui/dialog";
+
 
 export default function Navbar() {
   const [location, navigate] = useLocation();

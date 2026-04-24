@@ -13,7 +13,7 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import WelcomeLightbox from "./components/WelcomeLightbox";
 import NotFound from "./pages/not-found";
-
+import { dark } from "@clerk/themes";
 // Lazy load pages from components
 const VideoLibrary = lazy(() => import("./components/public/VideoLibrary"));
 const WatchVideo = lazy(() => import("./components/public/WatchVideo"));
@@ -64,6 +64,7 @@ function App() {
       signInUrl="/login"
       signUpUrl="/login"
       appearance={{
+        theme: dark,
         elements: {
           footer: "hidden",
           footerAction: "hidden"
