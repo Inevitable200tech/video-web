@@ -166,47 +166,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: "Admin access required" });
     }
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
+      const limit = parseInt(req.query.limit as string) || 15;
+      const page  = Math.max(1, parseInt(req.query.page as string) || 1);
+      const offset = (page - 1) * limit;
       const search = req.query.q as string;
 
-      // 1. Fetch users from Clerk with limit and search query
+      // 1. Fetch the total count from Clerk (separate lightweight call)
+      const countResponse = await clerkClient.users.getCount({ query: search || undefined });
+      const total = countResponse;
+
+      // 2. Fetch only the current page's slice from Clerk
       const clerkUsers = await clerkClient.users.getUserList({
         limit,
-        query: search || undefined
+        offset,
+        query: search || undefined,
+        orderBy: "-created_at"
       });
-      console.log(`[ADMIN] Found ${clerkUsers.data.length} users in Clerk${search ? ` matching "${search}"` : ""}`);
+      console.log(`[ADMIN] Found ${total} total users in Clerk, fetching page ${page} (${clerkUsers.data.length} users)${search ? ` matching "${search}"` : ""}`);
 
       // 2. Ensure each Clerk user exists in our local DB
       const syncedUsers = await Promise.all(clerkUsers.data.map(async (clerkUser) => {
-        let localUser = await storage.getUserByExternalId(clerkUser.id);
-        const email = clerkUser.emailAddresses[0]?.emailAddress || `${clerkUser.id}@no-email.com`;
-        const username = clerkUser.username || clerkUser.firstName || email.split("@")[0] || "User";
-        const role = (clerkUser.publicMetadata?.role as string) || "user";
+        try {
+          let localUser = await storage.getUserByExternalId(clerkUser.id);
+          const email = clerkUser.emailAddresses[0]?.emailAddress || `${clerkUser.id}@no-email.com`;
+          const username = clerkUser.username || clerkUser.firstName || email.split("@")[0] || "User";
+          const role = (clerkUser.publicMetadata?.role as string) || "user";
 
-        if (!localUser) {
-          console.log(`[ADMIN] Pre-syncing new Clerk user: ${username}`);
-          localUser = await storage.createUser({
-            externalId: clerkUser.id,
-            username,
-            email,
-            role: role as "admin" | "user",
-            isVerified: true
-          });
-        } else if (localUser.role !== role) {
-          // Sync role if it changed in Clerk
-          localUser = await storage.updateUser(localUser._id.toString(), { role: role as "admin" | "user" });
+          if (!localUser) {
+            // Before creating, check if a user already exists with this email or username
+            // (handles cases where the user signed up before Clerk was integrated)
+            let existingUser = await storage.getUserByEmail(email);
+            if (!existingUser) {
+              existingUser = await storage.getUserByUsername(username);
+            }
+
+            if (existingUser) {
+              // Link the existing DB record to this Clerk account
+              console.log(`[ADMIN] Linking existing user "${username}" to Clerk ID ${clerkUser.id}`);
+              const userId = (existingUser as any)._id?.toString() || (existingUser as any).id;
+              localUser = await storage.updateUser(userId, { externalId: clerkUser.id, role: role as "admin" | "user" });
+            } else {
+              console.log(`[ADMIN] Pre-syncing new Clerk user: ${username}`);
+              localUser = await storage.createUser({
+                externalId: clerkUser.id,
+                username,
+                email,
+                role: role as "admin" | "user",
+                isVerified: true
+              });
+            }
+          } else if (localUser.role !== role) {
+            // Sync role if it changed in Clerk
+            const userId = (localUser as any)._id?.toString() || (localUser as any).id;
+            localUser = await storage.updateUser(userId, { role: role as "admin" | "user" });
+          }
+
+          if (!localUser) return null;
+
+          // Return a clean object with 'id' for the frontend
+          const userObj = (localUser as any).toObject ? (localUser as any).toObject() : localUser;
+          return {
+            ...userObj,
+            id: userObj._id?.toString() || userObj.id
+          };
+        } catch (userErr: any) {
+          console.warn(`[ADMIN] Failed to sync Clerk user ${clerkUser.id}: ${userErr.message}`);
+          return null;
         }
-        if (!localUser) return null;
-
-        // Return a clean object with 'id' for the frontend
-        const userObj = (localUser as any).toObject ? (localUser as any).toObject() : localUser;
-        return {
-          ...userObj,
-          id: userObj._id?.toString() || userObj.id
-        };
       }));
 
-      res.json(syncedUsers.filter(u => u !== null));
+      res.json({ users: syncedUsers.filter(u => u !== null), total, page, limit });
     } catch (error) {
       console.error("[ADMIN] Failed to fetch/sync users:", error);
       res.status(500).json({ message: "Failed to fetch users" });

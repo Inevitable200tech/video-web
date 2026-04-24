@@ -303,15 +303,35 @@ export class MongoStorage implements IStorage {
 
   // Comment operations
   async getComments(videoId: string): Promise<Comment[]> {
-    const results = await Promise.all(this.models.AllCommentModels.map(model => 
-      model.find({ videoId: new mongoose.Types.ObjectId(videoId) })
-        .sort({ createdAt: -1 })
-        .populate("userId", "username avatarHash")
-        .lean()
-        .exec()
-    ));
+    if (!mongoose.Types.ObjectId.isValid(videoId)) return [];
+    const objId = new mongoose.Types.ObjectId(videoId);
+
+    const results = await Promise.all(this.models.AllCommentModels.map(async (model) => {
+      try {
+        return await model
+          .find({ videoId: objId })
+          .sort({ createdAt: -1 })
+          .populate("userId", "username avatarHash")
+          .lean()
+          .exec();
+      } catch {
+        // If populate fails on a secondary (e.g. no matching user data), fall back without it
+        return await model.find({ videoId: objId }).sort({ createdAt: -1 }).lean().exec();
+      }
+    }));
+
     const allDocs = results.flatMap(r => r);
-    return allDocs.map(doc => ({ ...doc, id: (doc as any)._id.toString() })) as unknown as Comment[];
+
+    // Deduplicate by _id in case a comment exists in multiple DB instances
+    const seen = new Set<string>();
+    const unique = allDocs.filter((doc: any) => {
+      const id = doc._id.toString();
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    return unique.map(doc => ({ ...doc, id: (doc as any)._id.toString() })) as unknown as Comment[];
   }
 
   async createComment(insertComment: InsertComment, userId: string): Promise<Comment> {

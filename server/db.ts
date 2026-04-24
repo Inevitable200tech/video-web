@@ -54,42 +54,47 @@ export const getModels = () => {
     throw new Error("Databases not connected. Call connectDatabases() first.");
   }
 
-  // Primary Models
+  // ── Primary Models ─────────────────────────────────────────────────────────
+  // Users, Comments, Sources, OTPs, and config all live in the primary DB.
+  // This keeps userId references resolvable without cross-connection lookups.
   const PrimaryModels = {
-    UserModel: primaryConn.model<User>("User", models.User),
-    SourceModel: primaryConn.model<Source>("Source", models.Source),
-    OTPModel: primaryConn.model<OTP>("OTP", models.OTP),
+    UserModel:              primaryConn.model<User>("User", models.User),
+    SourceModel:            primaryConn.model<Source>("Source", models.Source),
+    OTPModel:               primaryConn.model<OTP>("OTP", models.OTP),
     SecondaryDatabaseModel: primaryConn.model<SecondaryDatabase>("SecondaryDatabase", models.SecondaryDatabase),
-    
-    // We also define these on Primary as a fallback
-    VideoModel: primaryConn.model<Video>("Video", models.Video),
-    CommentModel: primaryConn.model<Comment>("Comment", models.Comment),
-    BlacklistedVideoModel: primaryConn.model<BlacklistedVideo>("BlacklistedVideo", models.BlacklistedVideo),
+
+    // Comments reference Users → must share the same connection for populate()
+    CommentModel:           primaryConn.model<Comment>("Comment", models.Comment),
+
+    // Primary also acts as fallback / index 0 for Videos and Blacklist
+    VideoModel:             primaryConn.model<Video>("Video", models.Video),
+    BlacklistedVideoModel:  primaryConn.model<BlacklistedVideo>("BlacklistedVideo", models.BlacklistedVideo),
   };
 
-  // Secondary Models (Multi-Instance)
+  // ── Secondary Models (Videos only) ────────────────────────────────────────
+  // Videos are spread across all DB instances for horizontal scaling.
+  // Blacklist is kept on primary (admin config data, small dataset).
   const allVideoModels = [PrimaryModels.VideoModel];
-  const allCommentModels = [PrimaryModels.CommentModel];
-  const allBlacklistModels = [PrimaryModels.BlacklistedVideoModel];
 
   for (const conn of secondaryConns) {
     allVideoModels.push(conn.model<Video>("Video", models.Video));
-    allCommentModels.push(conn.model<Comment>("Comment", models.Comment));
-    allBlacklistModels.push(conn.model<BlacklistedVideo>("BlacklistedVideo", models.BlacklistedVideo));
   }
 
   return {
     ...PrimaryModels,
-    // For Writes: Use the LAST added secondary connection (the newest "overflow" instance)
-    // If no secondaries, fall back to Primary
-    WriteVideoModel: allVideoModels[allVideoModels.length - 1],
-    WriteCommentModel: allCommentModels[allCommentModels.length - 1],
-    WriteBlacklistModel: allBlacklistModels[allBlacklistModels.length - 1],
 
-    // For Reads: Use all models
-    AllVideoModels: allVideoModels,
-    AllCommentModels: allCommentModels,
-    AllBlacklistModels: allBlacklistModels,
+    // Video writes go to the newest secondary (overflow instance).
+    // Falls back to primary if no secondaries are connected.
+    WriteVideoModel:    allVideoModels[allVideoModels.length - 1],
+
+    // Comments and Blacklist always use primary
+    WriteCommentModel:  PrimaryModels.CommentModel,
+    WriteBlacklistModel: PrimaryModels.BlacklistedVideoModel,
+
+    // Read from all video instances; everything else reads from primary only
+    AllVideoModels:     allVideoModels,
+    AllCommentModels:   [PrimaryModels.CommentModel],
+    AllBlacklistModels: [PrimaryModels.BlacklistedVideoModel],
   };
 };
 

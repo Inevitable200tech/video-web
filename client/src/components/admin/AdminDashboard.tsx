@@ -33,6 +33,7 @@ interface Video {
 interface UserData {
   id: string;
   username: string;
+  email?: string;
   role: string;
   bio?: string;
   createdAt: string;
@@ -74,6 +75,7 @@ export default function AdminDashboard() {
   const [isBulkEditDialogOpen, setIsBulkEditDialogOpen] = useState(false);
   const [titlePattern, setTitlePattern] = useState("");
   const [page, setPage] = useState(1);
+  const [usersPage, setUsersPage] = useState(1);
   const [search, setSearch] = useState("");
   const [previewHash, setPreviewHash] = useState<string | null>(null);
   const [isAddSourceOpen, setIsAddSourceOpen] = useState(false);
@@ -82,8 +84,9 @@ export default function AdminDashboard() {
   const [newDb, setNewDb] = useState({ name: "", url: "" });
   const limit = 15;
 
-  // Reset page on search
-  useEffect(() => { setPage(1); }, [search]);
+  // Reset pages on search or tab change
+  useEffect(() => { setPage(1); setUsersPage(1); }, [search]);
+  useEffect(() => { setUsersPage(1); }, [tab]);
 
   // ── Video list ──
   const { data: response, isLoading } = useQuery<{ videos: Video[], total: number }>({
@@ -149,10 +152,11 @@ export default function AdminDashboard() {
   });
 
   // ── User Management ──
-  const { data: users, isLoading: usersLoading } = useQuery<UserData[]>({
-    queryKey: ["/api/admin/users", search],
+  const usersLimit = 15;
+  const { data: usersResponse, isLoading: usersLoading } = useQuery<{ users: UserData[], total: number, page: number, limit: number }>({
+    queryKey: ["/api/admin/users", search, usersPage],
     queryFn: async () => {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: usersPage.toString(), limit: usersLimit.toString() });
       if (search) params.set("q", search);
       const res = await fetch(`/api/admin/users?${params}`);
       if (!res.ok) throw new Error("Failed to fetch users");
@@ -160,9 +164,9 @@ export default function AdminDashboard() {
     },
     enabled: tab === "users",
   });
-  useEffect(() => {
-    if (users) console.log("[ADMIN] Users data:", users);
-  }, [users]);
+  const users = usersResponse?.users || [];
+  const usersTotal = usersResponse?.total || 0;
+  const usersTotalPages = Math.max(1, Math.ceil(usersTotal / usersLimit));
 
   const updateUserMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string, updates: Partial<UserData> }) => {
@@ -574,36 +578,44 @@ export default function AdminDashboard() {
         {/* ─── Users Tab ─── */}
         {tab === "users" && (
           <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-white/5">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
               <h2 className="text-sm font-black uppercase tracking-widest text-foreground">User Management</h2>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                {usersTotal > 0 ? `${usersTotal} total` : ""}
+              </span>
             </div>
 
             <Table>
               <TableHeader className="bg-white/[0.02]">
                 <TableRow className="border-white/5 hover:bg-transparent">
                   <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Username</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Email</TableHead>
                   <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Role</TableHead>
-                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Joined Date</TableHead>
+                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Joined</TableHead>
                   <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {usersLoading ? (
-                  [...Array(5)].map((_, i) => (
+                  [...Array(usersLimit)].map((_, i) => (
                     <TableRow key={i} className="border-white/5">
                       <TableCell className="px-6 py-4"><Skeleton className="h-4 w-32 bg-white/5" /></TableCell>
+                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-40 bg-white/5" /></TableCell>
                       <TableCell className="px-6 py-4"><Skeleton className="h-4 w-16 bg-white/5" /></TableCell>
                       <TableCell className="px-6 py-4"><Skeleton className="h-4 w-24 bg-white/5" /></TableCell>
                       <TableCell className="px-6 py-4 text-right"><Skeleton className="h-8 w-24 ml-auto bg-white/5" /></TableCell>
                     </TableRow>
                   ))
-                ) : users && users.length > 0 ? (
+                ) : users.length > 0 ? (
                   users.map((u: any) => (
                     <TableRow key={u.id || u._id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
                       <TableCell className="px-6 py-4 font-bold text-foreground">
                         <Link href={`/profile/${u.username}`}>
                           <span className="hover:text-primary cursor-pointer transition-colors">{u.username}</span>
                         </Link>
+                      </TableCell>
+                      <TableCell className="px-6 py-4 text-xs text-muted-foreground">
+                        {u.email || "—"}
                       </TableCell>
                       <TableCell className="px-6 py-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
@@ -642,7 +654,7 @@ export default function AdminDashboard() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-32 text-center">
+                    <TableCell colSpan={5} className="h-32 text-center">
                       <div className="flex flex-col items-center gap-2 text-muted-foreground">
                         <Users className="w-8 h-8 opacity-20" />
                         <p className="text-xs font-bold uppercase tracking-widest">No users found</p>
@@ -652,6 +664,30 @@ export default function AdminDashboard() {
                 )}
               </TableBody>
             </Table>
+
+            {/* Users Pagination */}
+            <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                {usersTotal > 0
+                  ? `Showing ${(usersPage - 1) * usersLimit + 1}–${Math.min(usersPage * usersLimit, usersTotal)} of ${usersTotal}`
+                  : "No results"}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" disabled={usersPage === 1}
+                  onClick={() => setUsersPage(p => Math.max(1, p - 1))}
+                  className="w-8 h-8 rounded-lg border border-white/5 hover:bg-white/5 disabled:opacity-20"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm font-black text-foreground px-2">{usersPage} / {usersTotalPages}</span>
+                <Button variant="ghost" size="icon" disabled={usersPage >= usersTotalPages}
+                  onClick={() => setUsersPage(p => Math.min(usersTotalPages, p + 1))}
+                  className="w-8 h-8 rounded-lg border border-white/5 hover:bg-white/5 disabled:opacity-20"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
