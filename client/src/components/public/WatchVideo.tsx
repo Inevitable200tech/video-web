@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { Eye, User, Share2, ThumbsUp, Tag, Play, Heart, Lock } from "lucide-react";
+import { Eye, User, Share2, ThumbsUp, Tag, Play, Heart, Lock, MessageSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
@@ -40,6 +40,21 @@ export default function WatchVideo() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [showLoginWall, setShowLoginWall] = useState(false);
+  const [showExitIntent, setShowExitIntent] = useState(false);
+  const hasShownExitIntent = useRef(false);
+
+  useEffect(() => {
+    const handleMouseLeave = (e: MouseEvent) => {
+      // Check if mouse left the top of the window (moving to URL bar / tabs)
+      if (e.clientY <= 0 && !hasShownExitIntent.current) {
+        setShowExitIntent(true);
+        hasShownExitIntent.current = true;
+      }
+    };
+
+    document.addEventListener("mouseleave", handleMouseLeave);
+    return () => document.removeEventListener("mouseleave", handleMouseLeave);
+  }, []);
 
   // 1. Improved check to trigger the wall
   const checkLoginWall = () => {
@@ -312,6 +327,47 @@ export default function WatchVideo() {
           </div>
         </div>
       </div>
+
+
+      {/* Exit Intent Popup */}
+      {showExitIntent && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-300 px-4">
+          <div className="bg-[#0f0f13] border border-white/10 rounded-2xl max-w-md w-full p-8 text-center relative shadow-2xl">
+            <button 
+              onClick={() => setShowExitIntent(false)}
+              className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <MessageSquare className="w-8 h-8 text-primary" />
+            </div>
+            <h3 className="text-2xl font-black text-white mb-2 tracking-tight">Before <strong>you go</strong>....</h3>
+            <p className="text-muted-foreground text-sm mb-8 leading-relaxed">
+              Comment your <strong>suggestion</strong> to the website below it helps the other user....
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button 
+                onClick={() => {
+                  setShowExitIntent(false);
+                  document.getElementById("comment-section")?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  document.getElementById("comment-input")?.focus();
+                }}
+                className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl"
+              >
+                Leave a Comment
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowExitIntent(false)}
+                className="w-full h-12 text-white/50 hover:text-white hover:bg-white/5 font-bold rounded-xl"
+              >
+                Maybe Later
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

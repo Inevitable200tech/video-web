@@ -63,7 +63,7 @@ export default function CommentSection({ videoId }: CommentSectionProps) {
   };
 
   return (
-    <div className="mt-12 space-y-8">
+    <div id="comment-section" className="mt-12 space-y-8">
       <div className="flex items-center justify-between border-b border-white/5 pb-4">
         <div className="flex items-center gap-3">
           <MessageSquare className="w-5 h-5 text-primary" />
@@ -83,6 +83,7 @@ export default function CommentSection({ videoId }: CommentSectionProps) {
             </div>
             <div className="flex-1 space-y-3">
               <Textarea 
+                id="comment-input"
                 placeholder="Share your thoughts on this video..."
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
