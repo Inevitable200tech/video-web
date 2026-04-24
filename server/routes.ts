@@ -612,16 +612,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.delete("/api/videos/:id", requireAdmin, async (req, res) => {
-    try {
-      const success = await storage.deleteVideo(req.params.id);
-      if (success) res.json({ success: true });
-      else res.status(404).json({ message: "Video not found" });
-    } catch (error: any) {
-      res.status(500).json({ message: "Delete failed" });
-    }
-  });
-
   app.patch("/api/videos/bulk", requireAdmin, async (req, res) => {
     try {
       const { ids, titlePattern, category } = req.body;
@@ -650,6 +640,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("[BULK UPDATE ERROR]", error.message);
       res.status(500).json({ message: "Bulk update failed" });
+    }
+  });
+
+  app.delete("/api/videos/bulk", requireAdmin, async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "No video IDs provided" });
+      }
+
+      console.log(`[ADMIN] Bulk deleting ${ids.length} videos...`);
+      const results = await Promise.all(ids.map(id => storage.deleteVideo(id)));
+      const successCount = results.filter(Boolean).length;
+
+      res.json({ success: true, count: successCount });
+    } catch (error: any) {
+      console.error("[BULK DELETE ERROR]", error.message);
+      res.status(500).json({ message: "Bulk delete failed" });
+    }
+  });
+
+  app.delete("/api/videos/:id", requireAdmin, async (req, res) => {
+    try {
+      const success = await storage.deleteVideo(req.params.id);
+      if (success) res.json({ success: true });
+      else res.status(404).json({ message: "Video not found" });
+    } catch (error: any) {
+      res.status(500).json({ message: "Delete failed" });
     }
   });
 
@@ -763,6 +781,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(blacklist);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to fetch blacklist" });
+    }
+  });
+
+  app.delete("/api/admin/blacklist/bulk", requireAdmin, async (req, res) => {
+    try {
+      const { hashes } = req.body;
+      if (!Array.isArray(hashes) || hashes.length === 0) {
+        return res.status(400).json({ message: "No hashes provided" });
+      }
+
+      const count = await storage.bulkRemoveFromBlacklist(hashes);
+      if (count > 0) {
+        // Trigger a sync to re-discover the restored videos
+        syncAllSources().catch(err => console.error("[RESTORE SYNC ERROR]", err.message));
+        res.json({ success: true, count, message: `${count} videos restored (will appear after sync)` });
+      } else {
+        res.status(404).json({ message: "No hashes found in blacklist" });
+      }
+    } catch (error: any) {
+      console.error("[BULK RESTORE ERROR]", error.message);
+      res.status(500).json({ message: "Failed to remove from blacklist" });
     }
   });
 

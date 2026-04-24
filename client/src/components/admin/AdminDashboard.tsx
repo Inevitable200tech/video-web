@@ -72,6 +72,7 @@ export default function AdminDashboard() {
     setSearch("");
   }, [tab]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedBlacklistHashes, setSelectedBlacklistHashes] = useState<string[]>([]);
   const [isBulkEditDialogOpen, setIsBulkEditDialogOpen] = useState(false);
   const [titlePattern, setTitlePattern] = useState("");
   const [page, setPage] = useState(1);
@@ -86,7 +87,11 @@ export default function AdminDashboard() {
 
   // Reset pages on search or tab change
   useEffect(() => { setPage(1); setUsersPage(1); }, [search]);
-  useEffect(() => { setUsersPage(1); }, [tab]);
+  useEffect(() => { 
+    setUsersPage(1); 
+    setSelectedBlacklistHashes([]); // clear selections on tab change
+    setSelectedIds([]); 
+  }, [tab]);
 
   // ── Video list ──
   const { data: response, isLoading } = useQuery<{ videos: Video[], total: number }>({
@@ -149,6 +154,46 @@ export default function AdminDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
     },
     onError: () => toast({ title: "Bulk update failed", variant: "destructive" }),
+  });
+
+  // ── Bulk delete ──
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch("/api/videos/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("Bulk delete failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: `Successfully deleted ${data.count} videos` });
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/blacklist"] });
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+  });
+
+  // ── Bulk Restore ──
+  const bulkRestoreMutation = useMutation({
+    mutationFn: async (hashes: string[]) => {
+      const res = await fetch("/api/admin/blacklist/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hashes }),
+      });
+      if (!res.ok) throw new Error("Bulk restore failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: `Successfully restored ${data.count} videos` });
+      setSelectedBlacklistHashes([]);
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/blacklist"] });
+    },
+    onError: () => toast({ title: "Bulk restore failed", variant: "destructive" }),
   });
 
   // ── User Management ──
@@ -336,6 +381,14 @@ export default function AdminDashboard() {
   const toggleSelectAll = () =>
     setSelectedIds(selectedIds.length === videos.length ? [] : videos.map(v => v.id));
 
+  const toggleSelectBlacklist = (hash: string) =>
+    setSelectedBlacklistHashes(prev => prev.includes(hash) ? prev.filter(s => s !== hash) : [...prev, hash]);
+
+  const toggleSelectAllBlacklist = () => {
+    if (!blacklist) return;
+    setSelectedBlacklistHashes(selectedBlacklistHashes.length === blacklist.length ? [] : blacklist.map(v => v.hash));
+  };
+
   const totalViews = videos.reduce((acc, v) => acc + v.views, 0);
 
   return (
@@ -430,6 +483,15 @@ export default function AdminDashboard() {
                   className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-5 h-9 text-xs uppercase tracking-widest"
                 >
                   <Edit3 className="w-3.5 h-3.5 mr-1.5" /> Bulk Rename
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => { if (confirm(`Delete ${selectedIds.length} selected videos?`)) bulkDeleteMutation.mutate(selectedIds); }}
+                  disabled={bulkDeleteMutation.isPending}
+                  className="bg-destructive/10 hover:bg-destructive/20 text-destructive font-bold rounded-xl px-5 h-9 text-xs uppercase tracking-widest"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" /> 
+                  {bulkDeleteMutation.isPending ? "Deleting..." : "Bulk Delete"}
                 </Button>
                 <Button
                   variant="ghost"
@@ -796,37 +858,92 @@ export default function AdminDashboard() {
         )}
 
         {/* ─── Blacklist Tab ─── */}
+        {/* ─── Blacklist Tab ─── */}
         {tab === "blacklist" && (
-          <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-white/5">
-              <h2 className="text-sm font-black uppercase tracking-widest text-foreground">Blacklisted Hashes</h2>
-              <p className="text-[10px] text-muted-foreground font-bold mt-1 uppercase tracking-widest">Restore deleted videos to allow them to be re-discovered</p>
-            </div>
+          <>
+            {/* Blacklist Batch Actions Bar */}
+            <AnimatePresence>
+              {selectedBlacklistHashes.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="bg-primary/10 border border-primary/20 rounded-2xl p-5 flex items-center justify-between sticky top-24 z-40 shadow-lg shadow-primary/5 mb-6"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center">
+                      <CheckSquare className="w-5 h-5 text-primary-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-foreground font-bold text-sm">{selectedBlacklistHashes.length} items selected</p>
+                      <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Ready for batch operations</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => { if (confirm(`Restore ${selectedBlacklistHashes.length} selected videos?`)) bulkRestoreMutation.mutate(selectedBlacklistHashes); }}
+                      disabled={bulkRestoreMutation.isPending}
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-5 h-9 text-xs uppercase tracking-widest"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> 
+                      {bulkRestoreMutation.isPending ? "Restoring..." : "Bulk Restore"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSelectedBlacklistHashes([])}
+                      className="w-9 h-9 rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/10"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            <Table>
-              <TableHeader className="bg-white/[0.02]">
-                <TableRow className="border-white/5 hover:bg-transparent">
-                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Preview</TableHead>
-                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Title / Hash</TableHead>
-                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Reason</TableHead>
-                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Date</TableHead>
-                  <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {blacklistLoading ? (
-                  [...Array(3)].map((_, i) => (
-                    <TableRow key={i} className="border-white/5">
-                      <TableCell className="px-6 py-4"><Skeleton className="h-12 w-20 rounded-lg bg-white/5" /></TableCell>
-                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-48 bg-white/5" /></TableCell>
-                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-40 bg-white/5" /></TableCell>
-                      <TableCell className="px-6 py-4"><Skeleton className="h-4 w-24 bg-white/5" /></TableCell>
-                      <TableCell className="px-6 py-4 text-right"><Skeleton className="h-8 w-24 ml-auto bg-white/5" /></TableCell>
-                    </TableRow>
-                  ))
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-widest text-foreground">Blacklisted Hashes</h2>
+                  <p className="text-[10px] text-muted-foreground font-bold mt-1 uppercase tracking-widest">Restore deleted videos to allow them to be re-discovered</p>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                  <span>Select All</span>
+                  <Checkbox
+                    checked={blacklist && selectedBlacklistHashes.length === blacklist.length && blacklist.length > 0}
+                    onCheckedChange={toggleSelectAllBlacklist}
+                    className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                  />
+                </div>
+              </div>
+
+              <Table>
+                <TableHeader className="bg-white/[0.02]">
+                  <TableRow className="border-white/5 hover:bg-transparent">
+                    <TableHead className="w-12 px-6" />
+                    <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Preview</TableHead>
+                    <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Title / Hash</TableHead>
+                    <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Reason</TableHead>
+                    <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px]">Date</TableHead>
+                    <TableHead className="text-muted-foreground px-6 py-3 font-bold uppercase tracking-widest text-[10px] text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {blacklistLoading ? (
+                    [...Array(3)].map((_, i) => (
+                      <TableRow key={i} className="border-white/5">
+                        <TableCell className="px-6 py-4"><Skeleton className="h-4 w-4 bg-white/5" /></TableCell>
+                        <TableCell className="px-6 py-4"><Skeleton className="h-12 w-20 rounded-lg bg-white/5" /></TableCell>
+                        <TableCell className="px-6 py-4"><Skeleton className="h-4 w-48 bg-white/5" /></TableCell>
+                        <TableCell className="px-6 py-4"><Skeleton className="h-4 w-40 bg-white/5" /></TableCell>
+                        <TableCell className="px-6 py-4"><Skeleton className="h-4 w-24 bg-white/5" /></TableCell>
+                        <TableCell className="px-6 py-4 text-right"><Skeleton className="h-8 w-24 ml-auto bg-white/5" /></TableCell>
+                      </TableRow>
+                    ))
                 ) : blacklist?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-48 text-center">
+                    <TableCell colSpan={6} className="h-48 text-center">
                       <div className="flex flex-col items-center gap-3 text-muted-foreground">
                         <Ban className="w-12 h-12 opacity-10" />
                         <p className="text-xs font-bold uppercase tracking-widest">Your blacklist is empty</p>
@@ -837,9 +954,16 @@ export default function AdminDashboard() {
                     (item.title && item.title.toLowerCase().includes(search.toLowerCase())) ||
                     item.hash.toLowerCase().includes(search.toLowerCase()) || 
                     (item.reason && item.reason.toLowerCase().includes(search.toLowerCase()))
-                  ).map((item) => (
-                  <TableRow key={item.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
-                    <TableCell className="px-6 py-4">
+                    ).map((item) => (
+                    <TableRow key={item.id} className="border-white/5 hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedBlacklistHashes.includes(item.hash)}
+                          onCheckedChange={() => toggleSelectBlacklist(item.hash)}
+                          className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                        />
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
                       <div 
                         className="w-48 h-28 rounded-2xl overflow-hidden bg-black border border-white/5 cursor-pointer relative group/bt"
                         onClick={() => setPreviewHash(item.hash)}
@@ -892,6 +1016,7 @@ export default function AdminDashboard() {
               </TableBody>
             </Table>
           </div>
+          </>
         )}
 
         {/* ─── Databases Tab ─── */}

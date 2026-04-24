@@ -287,6 +287,15 @@ export class MongoStorage implements IStorage {
     return deleted;
   }
 
+  async bulkRemoveFromBlacklist(hashes: string[]): Promise<number> {
+    let totalDeleted = 0;
+    for (const model of this.models.AllBlacklistModels) {
+      const result = await model.deleteMany({ hash: { $in: hashes } }).exec();
+      totalDeleted += result.deletedCount;
+    }
+    return totalDeleted;
+  }
+
   async bulkUpdateVideos(ids: string[], updates: Partial<Video>): Promise<number> {
     let totalModified = 0;
     const objIds = ids.map(id => new mongoose.Types.ObjectId(id));

@@ -71,7 +71,7 @@ export default function WelcomeLightbox() {
 
               <div className="space-y-3">
                 <h2 className="text-3xl font-bold tracking-tight text-white">
-                  Are You Older Than <span className="text-primary">18?</span>
+                  Important  <span className="text-primary">Notice</span>
                 </h2>
                 <p className="text-muted-foreground text-sm leading-relaxed max-w-[320px] mx-auto">
                   By accessing this site, you confirm that you are at least 18 years old and are not violating any laws in your jurisdiction.
@@ -79,7 +79,8 @@ export default function WelcomeLightbox() {
                 </p>
                 <br />
                 <p className="text-red-500 text-sm font-bold text-center">The website is development please bookmark this website, more <strong>Content Daily Avaliable</strong></p>
-
+                <br />
+                <p className="text-red-500 text-sm font-bold text-center">Note:-  <strong> Some content has been removed </strong> Due to storage issue . They will be back at the end of the month. Thank you</p>
               </div>
 
               <Button
