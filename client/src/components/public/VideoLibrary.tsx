@@ -61,10 +61,19 @@ export default function VideoLibrary() {
   });
 
   // Category specific queries for the Cinema Home view
+  const { data: randomData } = useQuery<VideoResponse>({
+    queryKey: ["/api/videos", "random"],
+    queryFn: async () => {
+      const res = await fetch(`/api/videos?limit=12&sortBy=random`);
+      return res.json();
+    },
+    enabled: page === 1 && !searchQuery,
+  });
+
   const { data: trendingData } = useQuery<VideoResponse>({
     queryKey: ["/api/videos", "trending"],
     queryFn: async () => {
-      const res = await fetch(`/api/videos?limit=4&sortBy=views`);
+      const res = await fetch(`/api/videos?limit=8&sortBy=views`);
       return res.json();
     },
     enabled: page === 1 && !searchQuery,
@@ -142,8 +151,8 @@ export default function VideoLibrary() {
         
         {isCinemaView ? (
           <div className="space-y-20">
-            {/* Most Viewed Section */}
-            <section>
+
+              <section>
               <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-4">
                 <div className="flex items-center gap-3">
                   <Flame className="w-5 h-5 text-primary" />
@@ -157,9 +166,25 @@ export default function VideoLibrary() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {trendingData?.videos.map((v) => <VideoCard key={v.id} video={v} />)}
-                {!trendingData && [...Array(4)].map((_, i) => <Skeleton key={i} className="aspect-[16/9] rounded-2xl bg-white/5" />)}
+                {!trendingData && [...Array(8)].map((_, i) => <Skeleton key={i} className="aspect-[16/9] rounded-2xl bg-white/5" />)}
               </div>
             </section>
+            {/* Random Section */}
+            <section>
+              <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <Play className="w-5 h-5 text-primary" />
+                  <h2 className="text-xl font-bold tracking-tight">Discover Random</h2>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {randomData?.videos.map((v) => <VideoCard key={v.id} video={v} />)}
+                {!randomData && [...Array(12)].map((_, i) => <Skeleton key={i} className="aspect-[16/9] rounded-2xl bg-white/5" />)}
+              </div>
+            </section>
+
+            {/* Most Viewed Section */}
+          
 
             {/* Newest Section */}
             <section>

@@ -113,21 +113,43 @@ export class MongoStorage implements IStorage {
     else if (sortBy === "likes") sortObj = { likes: -1, uploadedAt: -1 };
     else if (sortBy === "trending") sortObj = { views: -1, uploadedAt: -1 };
 
-    // Parallel fetch from ALL databases
+    // If random, use MongoDB's efficient $sample aggregation instead of loading everything
+    if (sortBy === "random") {
+      const results = await Promise.all(this.models.AllVideoModels.map(async (model) => {
+        const [docs, total] = await Promise.all([
+          model.aggregate([
+            { $match: query },
+            { $sample: { size: limit } }
+          ]).exec(),
+          model.countDocuments(query).exec()
+        ]);
+        return { docs, total };
+      }));
+
+      const allDocs = results.flatMap(r => r.docs);
+      allDocs.sort(() => Math.random() - 0.5); // Shuffle the combined randoms
+
+      const total = results.reduce((acc, r) => acc + r.total, 0);
+      const videos = allDocs.slice(0, limit).map(doc => ({ ...doc, id: doc._id.toString() })) as unknown as Video[];
+      
+      return { videos, total };
+    }
+
+    // For other sorts, fetch only (skip + limit) from each DB to prevent OOM errors
+    const fetchLimit = skip + limit;
     const results = await Promise.all(this.models.AllVideoModels.map(async (model) => {
       const [docs, total] = await Promise.all([
-        model.find(query).sort(sortObj).lean().exec(),
+        model.find(query).sort(sortObj).limit(fetchLimit).lean().exec(),
         model.countDocuments(query).exec()
       ]);
       return { docs, total };
     }));
 
-    // Aggregate and manually sort/slice for pagination
-    // Note: In a massive scale, this would be slow. For "n" instances of 512MB, it's fine.
+    // Aggregate and sort only the partially fetched docs
     const allDocs = results.flatMap(r => r.docs);
     const total = results.reduce((acc, r) => acc + r.total, 0);
 
-    // Manual Sort
+    // Manual Sort across the aggregated DB results
     allDocs.sort((a: any, b: any) => {
       if (sortBy === "views") return (b.views || 0) - (a.views || 0);
       if (sortBy === "likes") return (b.likes || 0) - (a.likes || 0);
